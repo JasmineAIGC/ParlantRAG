@@ -13,10 +13,9 @@
     1. 用 FlexRAG scripts/build_knowledge_base.py 构建好知识库
     2. 复制并填写 .env.example → .env，至少配置以下变量：
          KNOWLEDGE_PERSIST_DIR=./knowledge_base/knowledge_persist_dir/hotpotqa
-         EMBEDDING_BASE_URL=http://10.x.x.x:8018/v1
+         EMBEDDING_MODEL_PATH=/path/to/models/BAAI/bge-large-zh-v1.5
          EMBEDDING_MODEL=bge-large-zh-v1.5
-    3. 启动 Embedding 服务（供 FlexRAGRetriever 使用）
-    4. pip install litellm python-dotenv llama-index llama-index-vector-stores-faiss faiss-cpu httpx
+    3. pip install python-dotenv llama-index llama-index-vector-stores-faiss faiss-cpu sentence-transformers
 """
 from __future__ import annotations
 

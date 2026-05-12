@@ -71,7 +71,7 @@ class FlexRAGRetriever(BaseRetriever):
 
         retriever = FlexRAGRetriever(
             persist_dir="./knowledge_base",
-            embedding_base_url="http://127.0.0.1:8018/v1",
+            embedding_model_path="/path/to/models/BAAI/bge-large-zh-v1.5",
             embedding_model="bge-large-zh-v1.5",
             top_k=5,
         )
@@ -94,13 +94,11 @@ class FlexRAGRetriever(BaseRetriever):
         """
         Args:
             persist_dir:            FlexRAG 知识库根目录（包含 ``faiss_index.bin`` 等文件）。
-            embedding_base_url:     Embedding 服务的 base URL（vLLM / OpenAI 兼容）。
-                                    仅在 ``embedding_model_path`` 为 ``None`` 时使用。
-            embedding_api_key:      Embedding 服务的 API Key；本地部署时可省略或设为任意字符串。
-            embedding_access_key:   可选的 ``access-key`` 请求头（部分私有部署网关需要）。
+            embedding_base_url:     保留参数（不再使用），仅用于向后兼容。
+            embedding_api_key:      保留参数（不再使用），仅用于向后兼容。
+            embedding_access_key:   保留参数（不再使用），仅用于向后兼容。
             embedding_model:        Embedding 模型名称，须与构建知识库时完全一致。
-            embedding_model_path:   本地 sentence-transformers 模型路径。
-                                    提供后使用本地推理，忽略 ``embedding_base_url``。
+            embedding_model_path:   本地 sentence-transformers 模型路径（**必填**）。
             top_k:                  默认返回的片段数量。
             bm25_weight:            BM25 混合权重（0~1）。0.0 表示纯向量检索。
                                     当 ``persist_dir/bm25_index/`` 存在且此值 > 0 时
