@@ -37,7 +37,7 @@ except ImportError:
     pass
 
 from rag_module.base import BaseRetriever, Chunk, RetrievalResult
-from rag_module.retrieval.embedding import OpenAILikeEmbedding
+from rag_module.retrieval.embedding import OpenAILikeEmbedding, SentenceTransformerEmbedding
 
 _FAISS_FILE = "faiss_index.bin"
 
@@ -87,6 +87,7 @@ class FlexRAGRetriever(BaseRetriever):
         embedding_api_key: Optional[str] = None,
         embedding_access_key: Optional[str] = None,
         embedding_model: str = "bge-large-zh-v1.5",
+        embedding_model_path: Optional[str] = None,
         top_k: int = 5,
         bm25_weight: float = 0.0,
     ) -> None:
@@ -94,9 +95,12 @@ class FlexRAGRetriever(BaseRetriever):
         Args:
             persist_dir:            FlexRAG 知识库根目录（包含 ``faiss_index.bin`` 等文件）。
             embedding_base_url:     Embedding 服务的 base URL（vLLM / OpenAI 兼容）。
+                                    仅在 ``embedding_model_path`` 为 ``None`` 时使用。
             embedding_api_key:      Embedding 服务的 API Key；本地部署时可省略或设为任意字符串。
             embedding_access_key:   可选的 ``access-key`` 请求头（部分私有部署网关需要）。
             embedding_model:        Embedding 模型名称，须与构建知识库时完全一致。
+            embedding_model_path:   本地 sentence-transformers 模型路径。
+                                    提供后使用本地推理，忽略 ``embedding_base_url``。
             top_k:                  默认返回的片段数量。
             bm25_weight:            BM25 混合权重（0~1）。0.0 表示纯向量检索。
                                     当 ``persist_dir/bm25_index/`` 存在且此值 > 0 时
@@ -107,6 +111,7 @@ class FlexRAGRetriever(BaseRetriever):
         self._embedding_api_key = embedding_api_key
         self._embedding_access_key = embedding_access_key
         self._embedding_model = embedding_model
+        self._embedding_model_path = embedding_model_path
         self._top_k = top_k
         self._bm25_weight = bm25_weight
 
@@ -121,32 +126,53 @@ class FlexRAGRetriever(BaseRetriever):
         """
         从环境变量（或 ``.env`` 文件）加载 Embedding 配置并创建检索器实例。
 
+        支持两种 Embedding 模式：
+
+        * **本地模式**（``EMBEDDING_MODEL_PATH`` 已设置）：使用 sentence-transformers
+          在本地加载模型，无需网络请求。
+        * **API 模式**（``EMBEDDING_BASE_URL`` 已设置）：通过 OpenAI 兼容接口调用
+          外部 Embedding 服务。
+
         读取顺序（优先级高 → 低）：
 
         ================  ==========================================
         参数               读取的环境变量
         ================  ==========================================
         persist_dir          KNOWLEDGE_PERSIST_DIR / KNOWLEDGE_BASE_DIR
-        embedding_base_url   EMBEDDING_BASE_URL / QWEN3_BASE_URL / LLM_BASE_URL
-        embedding_api_key    EMBEDDING_API_KEY / QWEN3_API_KEY / LLM_API_KEY
+        embedding_model_path EMBEDDING_MODEL_PATH  → 本地模式
+        embedding_base_url   EMBEDDING_BASE_URL（API 模式；不再 fallback 到 QWEN3_BASE_URL，
+                             避免将 LLM 服务 URL 误用为 Embedding 服务 URL）
+        embedding_api_key    EMBEDDING_API_KEY
         embedding_access_key EMBEDDING_ACCESS_KEY / QWEN3_ACCESS_KEY /
                              CONTEXTMIND_ACCESS_KEY / LLM_ACCESS_KEY / ACCESS_KEY
-        embedding_model      EMBEDDING_MODEL / QWEN3_MODEL / LLM_MODEL
+        embedding_model      EMBEDDING_MODEL
         top_k                TOP_K_RETRIEVAL / TOP_K
         bm25_weight          BM25_WEIGHT
         ====================  ==========================================
-
-        与 ``temp/embedding.py`` 中的 ``EmbeddingConfig.from_env()`` 命名完全兼容。
         """
         pd = persist_dir or _first_env_local(
             ["KNOWLEDGE_PERSIST_DIR", "KNOWLEDGE_BASE_DIR"],
             default="./knowledge_base/knowledge_persist_dir/hotpotqa",
         )
-        base_url = _first_env_local(
-            ["EMBEDDING_BASE_URL", "QWEN3_BASE_URL", "LLM_BASE_URL"],
-            default="http://127.0.0.1:8018/v1",
-        )
-        api_key = _first_env_local(["EMBEDDING_API_KEY", "QWEN3_API_KEY", "LLM_API_KEY"])
+
+        # 本地模型优先（EMBEDDING_MODEL_PATH 设置时直接使用本地推理，无需 API）
+        model_path = os.getenv("EMBEDDING_MODEL_PATH")
+        if model_path:
+            model = os.getenv("EMBEDDING_MODEL") or os.path.basename(model_path.rstrip("/\\"))
+            top_k = int(_first_env_local(["TOP_K_RETRIEVAL", "TOP_K"]) or "5")
+            bm25_weight = float(_first_env_local(["BM25_WEIGHT"]) or "0.0")
+            return cls(
+                persist_dir=pd,
+                embedding_model=model,
+                embedding_model_path=model_path,
+                top_k=top_k,
+                bm25_weight=bm25_weight,
+            )
+
+        # API 模式：仅读取 EMBEDDING_BASE_URL，不 fallback 到 QWEN3_BASE_URL
+        # （两者用途不同：QWEN3_BASE_URL 是 LLM 服务地址，不适合用于 Embedding）
+        base_url = os.getenv("EMBEDDING_BASE_URL", "http://127.0.0.1:8018/v1")
+        api_key = os.getenv("EMBEDDING_API_KEY")
         access_key = _first_env_local(
             [
                 "EMBEDDING_ACCESS_KEY",
@@ -156,10 +182,7 @@ class FlexRAGRetriever(BaseRetriever):
                 "ACCESS_KEY",
             ]
         )
-        model = _first_env_local(
-            ["EMBEDDING_MODEL", "QWEN3_MODEL", "LLM_MODEL"],
-            default="bge-large-zh-v1.5",
-        )
+        model = os.getenv("EMBEDDING_MODEL", "bge-large-zh-v1.5")
         top_k = int(_first_env_local(["TOP_K_RETRIEVAL", "TOP_K"]) or "5")
         bm25_weight = float(_first_env_local(["BM25_WEIGHT"]) or "0.0")
 
@@ -188,9 +211,19 @@ class FlexRAGRetriever(BaseRetriever):
         return self._embedding_model
 
     @property
+    def embedding_model_path(self) -> Optional[str]:
+        """本地 Embedding 模型路径（本地模式时有值，API 模式时为 None）。"""
+        return self._embedding_model_path
+
+    @property
     def embedding_base_url(self) -> str:
-        """Embedding 服务的 base URL。"""
+        """Embedding 服务的 base URL（API 模式时有效）。"""
         return self._embedding_base_url
+
+    @property
+    def embedding_mode(self) -> str:
+        """Embedding 模式：``'local'`` 或 ``'api'``。"""
+        return "local" if self._embedding_model_path else "api"
 
     @property
     def doc_count(self) -> int:
@@ -211,7 +244,8 @@ class FlexRAGRetriever(BaseRetriever):
         加载 FAISS 持久化索引（以及可选的 BM25 索引）。
 
         实现参考 FlexRAG ``MultiVectorRetriever._load_index()``：
-        使用 ``OpenAILikeEmbedding`` 作为 Embedding 模型（与构建阶段保持一致），
+        使用 ``OpenAILikeEmbedding``（API 模式）或 ``SentenceTransformerEmbedding``
+        （本地模式）作为 Embedding 模型（与构建阶段保持一致），
         通过 ``FaissVectorStore + StorageContext`` 恢复 ``VectorStoreIndex``。
         """
         try:
@@ -232,13 +266,19 @@ class FlexRAGRetriever(BaseRetriever):
                 "或将 KNOWLEDGE_PERSIST_DIR 设置为已有知识库的正确目录（含 faiss_index.bin）。"
             )
 
-        # 使用与 temp/embedding.py 相同的 openai SDK 模式初始化 OpenAILikeEmbedding
-        self._embed_model = OpenAILikeEmbedding(
-            base_url=self._embedding_base_url,
-            model_name=self._embedding_model,
-            api_key=self._embedding_api_key,
-            access_key=self._embedding_access_key,
-        )
+        # 根据 embedding_model_path 决定使用本地模型还是 API 服务
+        if self._embedding_model_path:
+            self._embed_model = SentenceTransformerEmbedding(
+                model_path=self._embedding_model_path,
+                model_name=self._embedding_model,
+            )
+        else:
+            self._embed_model = OpenAILikeEmbedding(
+                base_url=self._embedding_base_url,
+                model_name=self._embedding_model,
+                api_key=self._embedding_api_key,
+                access_key=self._embedding_access_key,
+            )
         Settings.embed_model = self._embed_model
 
         faiss_index = _faiss.read_index(faiss_path)
@@ -290,7 +330,23 @@ class FlexRAGRetriever(BaseRetriever):
 
         # --- 向量检索 ---
         dense_retriever = self._index.as_retriever(similarity_top_k=k)
-        dense_nodes = await asyncio.to_thread(dense_retriever.retrieve, query)
+        try:
+            dense_nodes = await asyncio.to_thread(dense_retriever.retrieve, query)
+        except Exception as exc:
+            exc_str = str(exc)
+            # httpx / httpcore 连接错误：Embedding 服务不可达
+            if "ConnectError" in type(exc).__name__ or "ConnectError" in exc_str:
+                mode = "本地" if self._embedding_model_path else f"API（{self._embedding_base_url}）"
+                raise ConnectionError(
+                    f"无法连接到 Embedding 服务，请检查配置。\n"
+                    f"  当前模式：{mode}\n"
+                    f"  模型：{self._embedding_model}\n"
+                    f"  提示：\n"
+                    f"    - 如需使用本地模型，请在 .env 中设置 EMBEDDING_MODEL_PATH=/path/to/model\n"
+                    f"    - 如需使用 API 服务，请将 EMBEDDING_BASE_URL 设为可访问的地址\n"
+                    f"      （避免使用 QWEN3_BASE_URL，那是 LLM 服务地址）"
+                ) from exc
+            raise
 
         # scored: content_text → (node, combined_score)
         scored: dict[str, tuple[Any, float]] = {}

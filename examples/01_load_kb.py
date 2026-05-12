@@ -57,7 +57,10 @@ def main() -> None:
     print(f"\n✅ 知识库加载成功")
     print(f"   文档片段总数：{retriever.doc_count}")
     print(f"   Embedding 模型：{retriever.embedding_model}")
-    print(f"   Embedding 服务：{retriever.embedding_base_url}")
+    if retriever.embedding_mode == "local":
+        print(f"   Embedding 模式：本地（{retriever.embedding_model_path}）")
+    else:
+        print(f"   Embedding 模式：API（{retriever.embedding_base_url}）")
 
 
 if __name__ == "__main__":

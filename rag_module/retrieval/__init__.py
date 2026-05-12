@@ -9,11 +9,18 @@
 
 Embedding：
 
-  - OpenAILikeEmbedding — OpenAI 兼容 Embedding 客户端（LlamaIndex BaseEmbedding 子类）
+  - OpenAILikeEmbedding         — OpenAI 兼容 Embedding 客户端（LlamaIndex BaseEmbedding 子类）
+  - SentenceTransformerEmbedding — 本地 sentence-transformers 封装（LlamaIndex BaseEmbedding 子类）
 """
-from rag_module.retrieval.embedding import OpenAILikeEmbedding
+from rag_module.retrieval.embedding import OpenAILikeEmbedding, SentenceTransformerEmbedding
 from rag_module.retrieval.keyword import KeywordRetriever
 from rag_module.retrieval.dense import DenseRetriever
 from rag_module.retrieval.flexrag import FlexRAGRetriever
 
-__all__ = ["OpenAILikeEmbedding", "KeywordRetriever", "DenseRetriever", "FlexRAGRetriever"]
+__all__ = [
+    "OpenAILikeEmbedding",
+    "SentenceTransformerEmbedding",
+    "KeywordRetriever",
+    "DenseRetriever",
+    "FlexRAGRetriever",
+]
