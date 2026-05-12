@@ -16,9 +16,13 @@ LLMEvaluator — 多信号融合 + LLM 综合评估器。
 
 3. **解析 LLM 返回的 JSON**，填充 :class:`~rag_module.base.EvaluationResult`。
 
+LLM 调用参考 ``temp/llm/llm_client.py`` 的 ``AdkLLMClient`` 模式，
+使用 ``LLMClient`` 通过 ``litellm.acompletion()`` 接入本地 vLLM / OpenAI
+兼容端点，配置通过 ``LLMConfig`` 从 ``.env`` 文件加载。
+
 依赖::
 
-    pip install openai
+    pip install litellm python-dotenv
 """
 from __future__ import annotations
 
@@ -32,6 +36,7 @@ from rag_module.base import (
     RetrievalResult,
     RetrievalSignals,
 )
+from rag_module.llm_client import LLMClient, LLMConfig
 
 # 用于从问题中提取关键词时过滤的停用词
 _STOPWORDS = {
@@ -161,38 +166,42 @@ class LLMEvaluator(BaseEvaluator):
       2. 将信号 + 原始片段一起送入 LLM，由 LLM 做综合判断
       3. 解析 LLM 返回的结构化 JSON，填充 EvaluationResult
 
+    LLM 调用通过 :class:`~rag_module.llm_client.LLMClient` 完成，
+    底层使用 ``litellm.acompletion()``，支持本地 vLLM 和任意 OpenAI 兼容端点。
+    配置通过 :class:`~rag_module.llm_client.LLMConfig` 从环境变量或 ``.env`` 加载。
+
     依赖::
 
-        pip install openai
+        pip install litellm python-dotenv
 
-    Usage::
+    Usage（从 .env 自动加载）::
 
-        evaluator = LLMEvaluator(
-            api_key="sk-...",
-            model="gpt-4o-mini",
-            # base_url="https://your-endpoint/v1",  # OpenAI 兼容接口
-        )
+        evaluator = LLMEvaluator()
         result = await evaluator.evaluate(question="...", retrieval=retrieval_result)
+
+    Usage（手动指定配置）::
+
+        from rag_module.llm_client import LLMConfig
+
+        config = LLMConfig(
+            api_key="sk-xxxx",
+            model="Qwen2.5-7B-Instruct",
+            base_url="http://10.x.x.x:18023/v1",
+        )
+        evaluator = LLMEvaluator(config=config)
     """
 
-    def __init__(
-        self,
-        api_key: str,
-        model: str = "gpt-4o-mini",
-        base_url: Optional[str] = None,
-        temperature: float = 0.0,
-    ) -> None:
+    def __init__(self, config: Optional[LLMConfig] = None) -> None:
         """
         Args:
-            api_key:      OpenAI 或兼容服务的 API Key。
-            model:        使用的 LLM 模型名称。
-            base_url:     自定义 API base URL（用于 OpenAI 兼容服务）。
-            temperature:  LLM 采样温度，默认 0.0（确定性输出）。
+            config: LLM 配置；为 ``None`` 时调用 :meth:`LLMConfig.from_env` 从
+                    环境变量（或 ``.env`` 文件）自动加载。
+
+        Raises:
+            ImportError: 若未安装 ``litellm``。
+            ValueError:  ``config`` 为 ``None`` 且环境变量中找不到 API Key 时。
         """
-        self._api_key = api_key
-        self._model = model
-        self._base_url = base_url
-        self._temperature = temperature
+        self._client = LLMClient(config=config)
 
     async def evaluate(
         self,
@@ -208,17 +217,7 @@ class LLMEvaluator(BaseEvaluator):
 
         Returns:
             :class:`~rag_module.base.EvaluationResult`
-
-        Raises:
-            ImportError: 若未安装 ``openai`` 库。
         """
-        try:
-            from openai import AsyncOpenAI
-        except ImportError:
-            raise ImportError(
-                "LLMEvaluator 需要安装：pip install openai"
-            )
-
         # --- 无结果快速返回 ---
         if not retrieval.chunks:
             empty_signals = RetrievalSignals(
@@ -242,15 +241,10 @@ class LLMEvaluator(BaseEvaluator):
         # --- 构造 Prompt 并调用 LLM ---
         prompt = _build_prompt(question, retrieval, signals)
 
-        client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
-        response = await client.chat.completions.create(
-            model=self._model,
-            temperature=self._temperature,
+        raw = await self._client.chat_async(
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
+            temperature=0.0,
         )
-
-        raw = response.choices[0].message.content or "{}"
 
         # --- 解析 JSON（容错处理） ---
         try:
@@ -259,9 +253,17 @@ class LLMEvaluator(BaseEvaluator):
             # Attempt to extract JSON from a Markdown code block (multi-line safe)
             match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw)
             if match:
-                result = json.loads(match.group(1))
+                try:
+                    result = json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    result = {}
             else:
-                result = {}
+                # Last resort: find first {...} block
+                try:
+                    match2 = re.search(r"\{[\s\S]*\}", raw)
+                    result = json.loads(match2.group(0)) if match2 else {}
+                except json.JSONDecodeError:
+                    result = {}
 
         return EvaluationResult(
             verdict=result.get("verdict", "no_coverage"),

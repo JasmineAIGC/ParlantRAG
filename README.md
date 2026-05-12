@@ -99,7 +99,8 @@ retriever = FlexRAGRetriever(
     top_k=5,
     bm25_weight=0.3,   # 70% 向量 + 30% BM25 混合（可选）
 )
-evaluator = LLMEvaluator(api_key="sk-...", model="gpt-4o-mini")
+# LLM 配置从 .env 文件自动加载（参考 .env.example）
+evaluator = LLMEvaluator()
 
 rag = RAGModule(retriever=retriever, evaluator=evaluator)
 await rag.register(agent)
@@ -108,7 +109,8 @@ await rag.register(agent)
 ### 4. 运行独立测试（不需要 Parlant 服务）
 
 ```bash
-export LLM_API_KEY=sk-your-key
+# 复制并填写 .env.example → .env
+cp .env.example .env
 PYTHONPATH=. python examples/standalone_test.py
 ```
 

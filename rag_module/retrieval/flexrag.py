@@ -1,8 +1,20 @@
 """
 FlexRAGRetriever — 加载 FlexRAG 构建的 FAISS 向量知识库。
 
-直接读取由 ``FlexRAG scripts/build_knowledge_base.py`` 持久化的索引目录，
-无需重新构建。支持纯向量检索和 BM25 混合检索。
+知识库调用方式参考 https://github.com/Xavier-123/FlexRAG 项目中
+``MultiVectorRetriever`` 和 ``OpenAILikeEmbedding`` 的实现（因为知识库本身就是由
+该项目的 ``scripts/build_knowledge_base.py`` 构建的，使用完全一致的索引格式与调用
+模式，确保 Embedding 和 FAISS 索引的兼容性）。
+
+主要组件对应关系：
+
+=============  ===============================================
+本模块            FlexRAG 原始位置
+=============  ===============================================
+OpenAILikeEmbedding   flexrag/components/retrieval/base.py
+FlexRAGRetriever      flexrag/components/retrieval/multi_vector_retriever.py
+                      (MultiVectorRetriever._load_index + retrieve)
+=============  ===============================================
 
 依赖::
 
@@ -17,14 +29,139 @@ import os
 import warnings
 from typing import Any, List, Optional
 
+from pydantic import PrivateAttr
+import httpx
+from llama_index.core.embeddings import BaseEmbedding
+
 from rag_module.base import BaseRetriever, Chunk, RetrievalResult
 
 _FAISS_FILE = "faiss.index"
 
 
+# ---------------------------------------------------------------------------
+# OpenAILikeEmbedding
+# ---------------------------------------------------------------------------
+
+class OpenAILikeEmbedding(BaseEmbedding):
+    """
+    最小化 OpenAI 兼容 Embedding 客户端，继承自 LlamaIndex ``BaseEmbedding``。
+
+    直接向 vLLM / OpenAI 兼容的 ``/v1/embeddings`` 端点发起 HTTP 请求，
+    同时支持同步和异步两种调用方式。
+
+    实现参考 FlexRAG ``flexrag/components/retrieval/base.py``，
+    与知识库构建阶段使用完全相同的 Embedding 接口，保证向量维度一致。
+
+    Args:
+        base_url:   Embedding 服务的 base URL（如 ``http://127.0.0.1:8018/v1``）。
+        model_name: Embedding 模型名称（如 ``Qwen3-Embedding-0.6B``）。
+        api_key:    API Key；本地部署时可设为任意非空字符串。
+    """
+
+    # Pydantic 字段
+    base_url: str
+    model_name: str
+    api_key: Optional[str] = None
+    embed_batch_size: int = 5  # inherited from BaseEmbedding; declared here for Pydantic
+
+    # 非序列化内部变量
+    _client: Any = PrivateAttr()
+    _aclient: Any = PrivateAttr()
+    _endpoint: str = PrivateAttr()
+
+    def __init__(
+        self,
+        base_url: str,
+        model_name: str,
+        api_key: Optional[str] = None,
+        embed_batch_size: int = 5,
+        http_client: Optional[Any] = None,
+        async_http_client: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            base_url=base_url,
+            model_name=model_name,
+            api_key=api_key,
+            embed_batch_size=embed_batch_size,
+            **kwargs,
+        )
+        raw = base_url.rstrip("/")
+        if raw.endswith("/v1/embeddings"):
+            self._endpoint = raw
+        elif raw.endswith("/v1"):
+            self._endpoint = raw + "/embeddings"
+        else:
+            self._endpoint = raw + "/v1/embeddings"
+
+        self._client = http_client or httpx.Client(timeout=60.0)
+        self._aclient = async_http_client or httpx.AsyncClient(timeout=60.0)
+
+    # ------------------------------------------------------------------
+    # 同步方法
+    # ------------------------------------------------------------------
+
+    def _get_query_embedding(self, query: str) -> List[float]:
+        return self._get_text_embeddings([query])[0]
+
+    def _get_text_embedding(self, text: str) -> List[float]:
+        return self._get_text_embeddings([text])[0]
+
+    def _get_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+        payload = {
+            "model": self.model_name,
+            "input": texts,
+            "encoding_format": "float",
+        }
+        headers: dict[str, str] = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        resp = self._client.post(self._endpoint, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()["data"]
+        data.sort(key=lambda item: item["index"])
+        return [item["embedding"] for item in data]
+
+    # ------------------------------------------------------------------
+    # 异步方法
+    # ------------------------------------------------------------------
+
+    async def _aget_query_embedding(self, query: str) -> List[float]:
+        return (await self._aget_text_embeddings([query]))[0]
+
+    async def _aget_text_embedding(self, text: str) -> List[float]:
+        return (await self._aget_text_embeddings([text]))[0]
+
+    async def _aget_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+        payload = {
+            "model": self.model_name,
+            "input": texts,
+            "encoding_format": "float",
+        }
+        headers: dict[str, str] = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        resp = await self._aclient.post(self._endpoint, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()["data"]
+        data.sort(key=lambda item: item["index"])
+        return [item["embedding"] for item in data]
+
+
+# ---------------------------------------------------------------------------
+# FlexRAGRetriever
+# ---------------------------------------------------------------------------
+
 class FlexRAGRetriever(BaseRetriever):
     """
-    读取 FlexRAG ``MultiVectorRetriever`` 持久化目录，执行向量（+可选 BM25）检索。
+    读取由 FlexRAG ``MultiVectorRetriever`` 持久化的目录，执行向量（+可选 BM25）检索。
+
+    索引加载方式与 FlexRAG ``MultiVectorRetriever._load_index()`` 完全一致：
+
+    1. 读取 ``{persist_dir}/faiss.index``
+    2. 构造 ``FaissVectorStore`` + ``StorageContext``
+    3. 调用 ``load_index_from_storage()`` 恢复 ``VectorStoreIndex``
+    4. 通过 ``index.as_retriever()`` 执行相似度检索
 
     构造时立即加载索引（同步），检索时异步执行。
 
@@ -45,7 +182,7 @@ class FlexRAGRetriever(BaseRetriever):
         self,
         persist_dir: str,
         embedding_base_url: str = "http://127.0.0.1:8018/v1",
-        embedding_api_key: str = "sk-xxxx",
+        embedding_api_key: Optional[str] = None,
         embedding_model: str = "Qwen3-Embedding-0.6B",
         top_k: int = 5,
         bm25_weight: float = 0.0,
@@ -54,8 +191,8 @@ class FlexRAGRetriever(BaseRetriever):
         Args:
             persist_dir:          FlexRAG 知识库根目录（包含 ``faiss.index`` 等文件）。
             embedding_base_url:   Embedding 服务的 base URL（vLLM / OpenAI 兼容）。
-            embedding_api_key:    Embedding 服务的 API Key。
-            embedding_model:      Embedding 模型名称。
+            embedding_api_key:    Embedding 服务的 API Key；本地部署时可省略或设为任意字符串。
+            embedding_model:      Embedding 模型名称，须与构建知识库时完全一致。
             top_k:                默认返回的片段数量。
             bm25_weight:          BM25 混合权重（0~1）。0.0 表示纯向量检索。
                                   当 ``persist_dir/bm25_index/`` 存在且此值 > 0 时
@@ -78,98 +215,14 @@ class FlexRAGRetriever(BaseRetriever):
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _build_embed_model(self) -> Any:
-        """构造一个最小化的 OpenAI 兼容 Embedding 客户端（不依赖 FlexRAG 包）。"""
-        try:
-            import httpx
-            from llama_index.core.embeddings import BaseEmbedding
-            from pydantic import PrivateAttr
-        except ImportError:
-            raise ImportError(
-                "FlexRAGRetriever 需要安装：pip install llama-index httpx"
-            )
-
-        raw = self._embedding_base_url.rstrip("/")
-        if raw.endswith("/v1/embeddings"):
-            endpoint = raw
-        elif raw.endswith("/v1"):
-            endpoint = raw + "/embeddings"
-        else:
-            endpoint = raw + "/v1/embeddings"
-
-        _api_key = self._embedding_api_key
-        _model_name = self._embedding_model
-
-        class _EmbeddingClient(BaseEmbedding):
-            base_url: str
-            model_name: str
-            api_key: Optional[str] = None
-            _client: Any = PrivateAttr()
-            _aclient: Any = PrivateAttr()
-            _endpoint: str = PrivateAttr()
-
-            def __init__(self, **kwargs: Any) -> None:
-                super().__init__(**kwargs)
-                self._endpoint = endpoint          # captured from outer scope
-                self._client = httpx.Client(timeout=60.0)
-                self._aclient = httpx.AsyncClient(timeout=60.0)
-
-            # -- sync --------------------------------------------------
-
-            def _get_query_embedding(self, query: str) -> List[float]:
-                return self._get_text_embeddings([query])[0]
-
-            def _get_text_embedding(self, text: str) -> List[float]:
-                return self._get_text_embeddings([text])[0]
-
-            def _get_text_embeddings(self, texts: List[str]) -> List[List[float]]:
-                payload = {
-                    "model": self.model_name,
-                    "input": texts,
-                    "encoding_format": "float",
-                }
-                headers: dict[str, str] = {}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-                resp = self._client.post(self._endpoint, json=payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()["data"]
-                data.sort(key=lambda item: item["index"])
-                return [item["embedding"] for item in data]
-
-            # -- async -------------------------------------------------
-
-            async def _aget_query_embedding(self, query: str) -> List[float]:
-                return (await self._aget_text_embeddings([query]))[0]
-
-            async def _aget_text_embedding(self, text: str) -> List[float]:
-                return (await self._aget_text_embeddings([text]))[0]
-
-            async def _aget_text_embeddings(self, texts: List[str]) -> List[List[float]]:
-                payload = {
-                    "model": self.model_name,
-                    "input": texts,
-                    "encoding_format": "float",
-                }
-                headers: dict[str, str] = {}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-                resp = await self._aclient.post(
-                    self._endpoint, json=payload, headers=headers
-                )
-                resp.raise_for_status()
-                data = resp.json()["data"]
-                data.sort(key=lambda item: item["index"])
-                return [item["embedding"] for item in data]
-
-        return _EmbeddingClient(
-            base_url=self._embedding_base_url,
-            model_name=_model_name,
-            api_key=_api_key,
-        )
-
     def _load_index(self) -> None:
-        """加载 FAISS 持久化索引（以及可选的 BM25 索引）。"""
+        """
+        加载 FAISS 持久化索引（以及可选的 BM25 索引）。
+
+        实现参考 FlexRAG ``MultiVectorRetriever._load_index()``：
+        使用 ``OpenAILikeEmbedding`` 作为 Embedding 模型（与构建阶段保持一致），
+        通过 ``FaissVectorStore + StorageContext`` 恢复 ``VectorStoreIndex``。
+        """
         try:
             import faiss as _faiss
             from llama_index.core import Settings, StorageContext, load_index_from_storage
@@ -177,7 +230,7 @@ class FlexRAGRetriever(BaseRetriever):
         except ImportError:
             raise ImportError(
                 "FlexRAGRetriever 需要安装：\n"
-                "pip install llama-index llama-index-vector-stores-faiss faiss-cpu"
+                "pip install llama-index llama-index-vector-stores-faiss faiss-cpu httpx"
             )
 
         faiss_path = os.path.join(self._persist_dir, _FAISS_FILE)
@@ -187,7 +240,12 @@ class FlexRAGRetriever(BaseRetriever):
                 "请先执行 FlexRAG scripts/build_knowledge_base.py 构建知识库。"
             )
 
-        self._embed_model = self._build_embed_model()
+        # 使用与 FlexRAG 构建阶段相同的 OpenAILikeEmbedding
+        self._embed_model = OpenAILikeEmbedding(
+            base_url=self._embedding_base_url,
+            model_name=self._embedding_model,
+            api_key=self._embedding_api_key,
+        )
         Settings.embed_model = self._embed_model
 
         faiss_index = _faiss.read_index(faiss_path)
@@ -198,12 +256,13 @@ class FlexRAGRetriever(BaseRetriever):
         )
         self._index = load_index_from_storage(storage_context)
 
-        # Optionally load BM25
+        # 可选：加载 BM25 索引
         bm25_path = os.path.join(self._persist_dir, "bm25_index")
         if self._bm25_weight > 0 and os.path.isdir(bm25_path):
             self._load_bm25(bm25_path)
 
     def _load_bm25(self, bm25_path: str) -> None:
+        """加载 BM25 索引（可选）；失败时自动回退到纯向量检索。"""
         try:
             from llama_index.retrievers.bm25 import BM25Retriever as _BM25Retriever
             self._bm25_retriever = _BM25Retriever.from_persist_dir(bm25_path)
@@ -218,12 +277,16 @@ class FlexRAGRetriever(BaseRetriever):
     # Public API
     # ------------------------------------------------------------------
 
-    async def retrieve(self, query: str, top_k: int | None = None) -> RetrievalResult:
+    async def retrieve(self, query: str, top_k: Optional[int] = None) -> RetrievalResult:
         """
-        向量检索（可选 BM25 混合）。
+        执行向量检索（可选 BM25 混合），返回 :class:`~rag_module.base.RetrievalResult`。
+
+        实现参考 FlexRAG ``MultiVectorRetriever.retrieve()``：
+        使用 ``index.as_retriever()`` 获取向量检索结果，
+        可选与 BM25 结果按权重融合后排序返回。
 
         Args:
-            query:  检索查询词
+            query:  检索查询词。
             top_k:  返回片段数量，不传则使用构造时的 ``top_k``。
 
         Returns:
@@ -242,7 +305,7 @@ class FlexRAGRetriever(BaseRetriever):
             key = node.get_content()
             scored[key] = (node, (node.score or 0.0) * dense_w)
 
-        # --- BM25 混合 ---
+        # --- BM25 混合（可选）---
         if self._bm25_retriever is not None and self._bm25_weight > 0:
             bm25_nodes = await asyncio.to_thread(
                 self._bm25_retriever.retrieve, query
@@ -256,7 +319,7 @@ class FlexRAGRetriever(BaseRetriever):
                 else:
                     scored[key] = (node, bm25_score)
 
-        # --- 排序 & 封装 ---
+        # --- 排序 & 封装为 Chunk ---
         sorted_items = sorted(scored.values(), key=lambda x: x[1], reverse=True)[:k]
 
         chunks: list[Chunk] = []

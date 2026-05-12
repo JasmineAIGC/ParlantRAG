@@ -16,6 +16,7 @@ from rag_module.base import (
     RetrievalSignals,
     EvaluationResult,
 )
+from rag_module.llm_client import LLMClient, LLMConfig
 from rag_module.retrieval import KeywordRetriever, DenseRetriever, FlexRAGRetriever
 from rag_module.evaluation import LLMEvaluator
 
@@ -30,7 +31,10 @@ __all__ = [
     "RetrievalResult",
     "RetrievalSignals",
     "EvaluationResult",
-    # 检索器
+    # LLM 客户端（参考 temp/llm/llm_client.py 的 AdkLLMClient 模式）
+    "LLMClient",
+    "LLMConfig",
+    # 检索器（知识库调用参考 FlexRAG MultiVectorRetriever）
     "KeywordRetriever",
     "DenseRetriever",
     "FlexRAGRetriever",

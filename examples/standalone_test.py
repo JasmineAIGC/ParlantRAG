@@ -2,9 +2,14 @@
 standalone_test.py — 独立测试（不需要启动 Parlant 服务）
 
 直接调用检索器和评估器，验证检索与评估流程是否正常工作。
-可在配置好 LLM API Key 后直接运行。
 
-pip install openai
+运行方式：
+  # 1. 复制并填写 .env.example → .env（至少填写 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL）
+  # 2. 运行：
+  PYTHONPATH=. python examples/standalone_test.py
+
+依赖：
+  pip install litellm python-dotenv
 """
 from __future__ import annotations
 
@@ -13,6 +18,7 @@ import os
 
 from rag_module.retrieval import KeywordRetriever
 from rag_module.evaluation import LLMEvaluator
+from rag_module.llm_client import LLMConfig
 
 DOCS = [
     {
@@ -52,22 +58,21 @@ async def main() -> None:
     print(f"\n📄 检索到 {len(retrieval.chunks)} 个片段：")
     for chunk in retrieval.chunks:
         print(f"  [{chunk.score:.4f}] {chunk.source}")
-        print(f"           {chunk.content[:80]}...")
+        preview = chunk.content[:80] + ("..." if len(chunk.content) > 80 else "")
+        print(f"           {preview}")
 
     # ── 评估 ──────────────────────────────────────────────────────────────
-    api_key = os.environ.get("LLM_API_KEY", "")
-    if not api_key:
+    # LLMConfig 从 .env 自动加载；若未配置则跳过 LLM 评估
+    try:
+        config = LLMConfig.from_env()
+    except ValueError as e:
         print(
-            "\n⚠️  未设置 LLM_API_KEY 环境变量，跳过 LLM 评估。\n"
-            "    设置方法：export LLM_API_KEY=sk-your-key"
+            f"\n⚠️  跳过 LLM 评估：{e}\n"
+            "    请在 .env 文件中设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL。"
         )
         return
 
-    evaluator = LLMEvaluator(
-        api_key=api_key,
-        model=os.environ.get("LLM_MODEL", "gpt-4o-mini"),
-        temperature=0.0,
-    )
+    evaluator = LLMEvaluator(config=config)
 
     print(f"\n{'='*60}")
     print("📊 LLM 多信号评估中...")
