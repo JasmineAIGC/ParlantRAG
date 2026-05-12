@@ -12,7 +12,7 @@
 前置条件：
     1. 用 FlexRAG scripts/build_knowledge_base.py 构建好知识库
     2. 复制并填写 .env.example → .env，配置以下变量（参考 temp/llm/.env）：
-         KNOWLEDGE_PERSIST_DIR=./knowledge_base
+         KNOWLEDGE_PERSIST_DIR=./knowledge_base/knowledge_persist_dir/hotpotqa
          EMBEDDING_BASE_URL=http://10.x.x.x:8018/v1
          EMBEDDING_MODEL=bge-large-zh-v1.5
          QWEN3_API_KEY=sk-xxxx

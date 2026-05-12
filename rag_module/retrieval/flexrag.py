@@ -50,7 +50,7 @@ except ImportError:
 
 from rag_module.base import BaseRetriever, Chunk, RetrievalResult
 
-_FAISS_FILE = "faiss.index"
+_FAISS_FILE = "faiss_index.bin"
 
 
 def _first_env_local(keys: Sequence[str], default: Optional[str] = None) -> Optional[str]:
@@ -181,7 +181,7 @@ class FlexRAGRetriever(BaseRetriever):
 
     索引加载方式与 FlexRAG ``MultiVectorRetriever._load_index()`` 完全一致：
 
-    1. 读取 ``{persist_dir}/faiss.index``
+    1. 读取 ``{persist_dir}/faiss_index.bin``
     2. 构造 ``FaissVectorStore`` + ``StorageContext``
     3. 调用 ``load_index_from_storage()`` 恢复 ``VectorStoreIndex``
     4. 通过 ``index.as_retriever()`` 执行相似度检索
@@ -212,7 +212,7 @@ class FlexRAGRetriever(BaseRetriever):
     ) -> None:
         """
         Args:
-            persist_dir:          FlexRAG 知识库根目录（包含 ``faiss.index`` 等文件）。
+            persist_dir:          FlexRAG 知识库根目录（包含 ``faiss_index.bin`` 等文件）。
             embedding_base_url:   Embedding 服务的 base URL（vLLM / OpenAI 兼容）。
             embedding_api_key:    Embedding 服务的 API Key；本地部署时可省略或设为任意字符串。
             embedding_model:      Embedding 模型名称，须与构建知识库时完全一致。
@@ -256,7 +256,7 @@ class FlexRAGRetriever(BaseRetriever):
         """
         pd = persist_dir or _first_env_local(
             ["KNOWLEDGE_PERSIST_DIR", "KNOWLEDGE_BASE_DIR"],
-            default="./knowledge_base",
+            default="./knowledge_base/knowledge_persist_dir/hotpotqa",
         )
         base_url = _first_env_local(
             ["EMBEDDING_BASE_URL", "QWEN3_BASE_URL", "LLM_BASE_URL"],
@@ -334,7 +334,8 @@ class FlexRAGRetriever(BaseRetriever):
         if not os.path.exists(faiss_path):
             raise FileNotFoundError(
                 f"未找到 FAISS 索引文件：{faiss_path}\n"
-                "请先执行 FlexRAG scripts/build_knowledge_base.py 构建知识库。"
+                "请先执行 FlexRAG scripts/build_knowledge_base.py 构建知识库，"
+                "或将 KNOWLEDGE_PERSIST_DIR 设置为已有知识库的正确目录（含 faiss_index.bin）。"
             )
 
         # 使用与 FlexRAG 构建阶段相同的 OpenAILikeEmbedding

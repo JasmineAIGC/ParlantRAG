@@ -12,7 +12,7 @@
 前置条件：
     1. 用 FlexRAG scripts/build_knowledge_base.py 构建好知识库
     2. 复制并填写 .env.example → .env，至少配置以下变量：
-         KNOWLEDGE_PERSIST_DIR=./knowledge_base
+         KNOWLEDGE_PERSIST_DIR=./knowledge_base/knowledge_persist_dir/hotpotqa
          EMBEDDING_BASE_URL=http://10.x.x.x:8018/v1
          EMBEDDING_MODEL=bge-large-zh-v1.5
     3. 启动 Embedding 服务（供 FlexRAGRetriever 使用）
@@ -41,7 +41,7 @@ def main() -> None:
     print(f"{'='*60}")
 
     # 检查索引文件是否存在
-    faiss_path = os.path.join(persist_dir, "faiss.index")
+    faiss_path = os.path.join(persist_dir, "faiss_index.bin")
     if not os.path.exists(faiss_path):
         print(f"\n❌ 未找到 FAISS 索引文件：{faiss_path}")
         print("   请先执行 FlexRAG scripts/build_knowledge_base.py 构建知识库。")
