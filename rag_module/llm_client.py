@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
@@ -169,14 +169,16 @@ class LLMConfig:
         """
         从环境变量（或 .env 文件）加载配置。
 
-        优先读取 ``LLM_*`` 系列变量，同时向后兼容 ``QWEN3_*`` / ``OPENAI_*``
-        等命名方案。
+        环境变量读取优先级（高 → 低）：
+          ``QWEN3_*`` > ``LLM_*`` > ``CONTEXTMIND_*`` > ``OPENAI_*`` > ``DEEPSEEK_*``
+
+        与 ``temp/llm/.env`` 中的 ``QWEN3_*`` 命名完全兼容。
 
         Raises:
             ValueError: 若无法找到任何 API Key。
         """
         api_key = _first_env([
-            "LLM_API_KEY", "QWEN3_API_KEY", "CONTEXTMIND_API_KEY",
+            "QWEN3_API_KEY", "LLM_API_KEY", "CONTEXTMIND_API_KEY",
             "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "QWEN_API_KEY",
         ])
         if not api_key:
@@ -186,20 +188,20 @@ class LLMConfig:
             )
 
         base_url = _first_env([
-            "LLM_BASE_URL", "QWEN3_BASE_URL", "CONTEXTMIND_BASE_URL",
+            "QWEN3_BASE_URL", "LLM_BASE_URL", "CONTEXTMIND_BASE_URL",
             "OPENAI_BASE_URL", "DEEPSEEK_BASE_URL", "QWEN_BASE_URL",
         ])
         model = _first_env([
-            "LLM_MODEL", "QWEN3_MODEL", "CONTEXTMIND_MODEL",
+            "QWEN3_MODEL", "LLM_MODEL", "CONTEXTMIND_MODEL",
             "OPENAI_MODEL", "DEEPSEEK_MODEL", "QWEN_MODEL",
         ], default=DEFAULT_MODEL)
 
-        temperature_str = _first_env(["LLM_TEMPERATURE", "OPENAI_TEMPERATURE"])
+        temperature_str = _first_env(["QWEN3_TEMPERATURE", "LLM_TEMPERATURE", "OPENAI_TEMPERATURE"])
         temperature = float(temperature_str) if temperature_str else DEFAULT_TEMPERATURE
 
         max_tokens = (
             int(v)
-            if (v := _first_env(["LLM_MAX_TOKENS", "QWEN3_MAX_TOKENS", "MAX_TOKENS"]))
+            if (v := _first_env(["QWEN3_MAX_TOKENS", "LLM_MAX_TOKENS", "MAX_TOKENS"]))
             else DEFAULT_MAX_TOKENS
         )
 

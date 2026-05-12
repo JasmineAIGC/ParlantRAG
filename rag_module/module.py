@@ -23,7 +23,7 @@ class RAGModule:
 
         rag = RAGModule(
             documents=my_docs,
-            evaluator=LLMEvaluator(api_key="sk-...", model="gpt-4o-mini"),
+            evaluator=LLMEvaluator(),   # 从 .env 自动加载 LLM 配置
         )
         await rag.register(agent)
 
@@ -32,13 +32,8 @@ class RAGModule:
         from rag_module import RAGModule, LLMEvaluator
         from rag_module.retrieval import FlexRAGRetriever
 
-        retriever = FlexRAGRetriever(
-            persist_dir="./knowledge_base",
-            embedding_base_url="http://127.0.0.1:8018/v1",
-            embedding_api_key="sk-xxxx",
-            embedding_model="Qwen3-Embedding-0.6B",
-        )
-        evaluator = LLMEvaluator(api_key="sk-...", model="gpt-4o-mini")
+        retriever = FlexRAGRetriever.from_env()  # 从 .env 自动加载
+        evaluator = LLMEvaluator()               # 从 .env 自动加载
         rag = RAGModule(retriever=retriever, evaluator=evaluator)
         await rag.register(agent)
     """

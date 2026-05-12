@@ -27,22 +27,45 @@ from __future__ import annotations
 import asyncio
 import os
 import warnings
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Sequence
 
-from pydantic import PrivateAttr
-import httpx
-from llama_index.core.embeddings import BaseEmbedding
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv()
+except ImportError:
+    pass
+
+# Guard llama-index import so the whole rag_module package remains importable
+# even when llama-index is not installed. Runtime errors are raised in _load_index().
+try:
+    from pydantic import PrivateAttr
+    import httpx
+    from llama_index.core.embeddings import BaseEmbedding as _BaseEmbedding
+    _LLAMA_AVAILABLE = True
+except ImportError:
+    _LLAMA_AVAILABLE = False
+    _BaseEmbedding = object  # type: ignore[assignment,misc]
+    PrivateAttr = lambda **kw: None  # type: ignore[assignment]  # noqa: E731
+    httpx = None  # type: ignore[assignment]
 
 from rag_module.base import BaseRetriever, Chunk, RetrievalResult
 
 _FAISS_FILE = "faiss.index"
 
 
+def _first_env_local(keys: Sequence[str], default: Optional[str] = None) -> Optional[str]:
+    """按顺序读取环境变量，返回首个非空值。"""
+    for key in keys:
+        if value := os.getenv(key):
+            return value
+    return default
+
+
 # ---------------------------------------------------------------------------
 # OpenAILikeEmbedding
 # ---------------------------------------------------------------------------
 
-class OpenAILikeEmbedding(BaseEmbedding):
+class OpenAILikeEmbedding(_BaseEmbedding):
     """
     最小化 OpenAI 兼容 Embedding 客户端，继承自 LlamaIndex ``BaseEmbedding``。
 
@@ -170,11 +193,11 @@ class FlexRAGRetriever(BaseRetriever):
         retriever = FlexRAGRetriever(
             persist_dir="./knowledge_base",
             embedding_base_url="http://127.0.0.1:8018/v1",
-            embedding_api_key="sk-xxxx",
-            embedding_model="Qwen3-Embedding-0.6B",
+            embedding_model="bge-large-zh-v1.5",
             top_k=5,
-            bm25_weight=0.3,   # 0.0 = 纯向量; >0 = 混合（需 bm25_index/ 子目录）
         )
+        # Or load everything from .env / environment variables:
+        retriever = FlexRAGRetriever.from_env()
         result = await retriever.retrieve("查询词")
     """
 
@@ -183,7 +206,7 @@ class FlexRAGRetriever(BaseRetriever):
         persist_dir: str,
         embedding_base_url: str = "http://127.0.0.1:8018/v1",
         embedding_api_key: Optional[str] = None,
-        embedding_model: str = "Qwen3-Embedding-0.6B",
+        embedding_model: str = "bge-large-zh-v1.5",
         top_k: int = 5,
         bm25_weight: float = 0.0,
     ) -> None:
@@ -210,6 +233,51 @@ class FlexRAGRetriever(BaseRetriever):
         self._bm25_retriever: Any = None
 
         self._load_index()
+
+    @classmethod
+    def from_env(cls, persist_dir: Optional[str] = None) -> "FlexRAGRetriever":
+        """
+        从环境变量（或 ``.env`` 文件）加载 Embedding 配置并创建检索器实例。
+
+        读取顺序（优先级高 → 低）：
+
+        ================  ==========================================
+        参数               读取的环境变量
+        ================  ==========================================
+        persist_dir        KNOWLEDGE_PERSIST_DIR / KNOWLEDGE_BASE_DIR
+        embedding_base_url EMBEDDING_BASE_URL / QWEN3_BASE_URL / LLM_BASE_URL
+        embedding_api_key  EMBEDDING_API_KEY / QWEN3_API_KEY / LLM_API_KEY
+        embedding_model    EMBEDDING_MODEL / QWEN3_MODEL / LLM_MODEL
+        top_k              TOP_K_RETRIEVAL / TOP_K
+        bm25_weight        BM25_WEIGHT
+        ================  ==========================================
+
+        与 ``temp/llm/.env`` 中的 ``EMBEDDING_MODEL`` / ``QWEN3_*`` 命名完全兼容。
+        """
+        pd = persist_dir or _first_env_local(
+            ["KNOWLEDGE_PERSIST_DIR", "KNOWLEDGE_BASE_DIR"],
+            default="./knowledge_base",
+        )
+        base_url = _first_env_local(
+            ["EMBEDDING_BASE_URL", "QWEN3_BASE_URL", "LLM_BASE_URL"],
+            default="http://127.0.0.1:8018/v1",
+        )
+        api_key = _first_env_local(["EMBEDDING_API_KEY", "QWEN3_API_KEY", "LLM_API_KEY"])
+        model = _first_env_local(
+            ["EMBEDDING_MODEL", "QWEN3_MODEL", "LLM_MODEL"],
+            default="bge-large-zh-v1.5",
+        )
+        top_k = int(_first_env_local(["TOP_K_RETRIEVAL", "TOP_K"]) or "5")
+        bm25_weight = float(_first_env_local(["BM25_WEIGHT"]) or "0.0")
+
+        return cls(
+            persist_dir=pd,
+            embedding_base_url=base_url,
+            embedding_api_key=api_key,
+            embedding_model=model,
+            top_k=top_k,
+            bm25_weight=bm25_weight,
+        )
 
     # ------------------------------------------------------------------
     # Private helpers
