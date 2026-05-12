@@ -14,20 +14,28 @@ OpenAILikeEmbedding — OpenAI 兼容 Embedding 客户端。
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, List, Optional, Sequence
 
-# Guard llama-index / openai import so the whole rag_module package remains importable
-# even when these are not installed. Runtime errors are raised in _get_text_embeddings().
+# 第一层 guard：llama-index + pydantic（SentenceTransformerEmbedding 和 OpenAILikeEmbedding
+# 都需要，因此单独保护；openai SDK 不在此层，避免 openai 未安装时连 BaseEmbedding 也丢失）。
 try:
     from pydantic import PrivateAttr
-    from openai import OpenAI as _OpenAI, AsyncOpenAI as _AsyncOpenAI
     from llama_index.core.embeddings import BaseEmbedding as _BaseEmbedding
     _LLAMA_AVAILABLE = True
 except ImportError:
     _LLAMA_AVAILABLE = False
     _BaseEmbedding = object  # type: ignore[assignment,misc]
     PrivateAttr = lambda **kw: None  # type: ignore[assignment]  # noqa: E731
+
+# 第二层 guard：openai SDK（仅 OpenAILikeEmbedding 需要；与上层分开，
+# 保证 openai 未安装时 _BaseEmbedding 仍能正确指向 llama-index 的 BaseEmbedding）。
+try:
+    from openai import OpenAI as _OpenAI, AsyncOpenAI as _AsyncOpenAI
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    _OPENAI_AVAILABLE = False
     _OpenAI = None  # type: ignore[assignment]
     _AsyncOpenAI = None  # type: ignore[assignment]
 
@@ -75,6 +83,16 @@ class OpenAILikeEmbedding(_BaseEmbedding):
         embed_batch_size: int = 5,
         **kwargs: Any,
     ) -> None:
+        if not _LLAMA_AVAILABLE:
+            raise ImportError(
+                "OpenAILikeEmbedding 需要安装 llama-index：\n"
+                "pip install llama-index"
+            )
+        if not _OPENAI_AVAILABLE:
+            raise ImportError(
+                "OpenAILikeEmbedding 需要安装 openai SDK：\n"
+                "pip install openai>=1.0.0"
+            )
         super().__init__(
             base_url=base_url,
             model_name=model_name,
@@ -203,6 +221,12 @@ class SentenceTransformerEmbedding(_BaseEmbedding):
         embed_batch_size: int = 32,
         **kwargs: Any,
     ) -> None:
+        # 先检查依赖，避免因 _BaseEmbedding=object 而产生误导性的 TypeError
+        if not _LLAMA_AVAILABLE:
+            raise ImportError(
+                "SentenceTransformerEmbedding 需要安装 llama-index：\n"
+                "pip install llama-index sentence-transformers"
+            )
         _name = model_name or os.path.basename(model_path.rstrip("/\\")) or "local"
         super().__init__(
             model_path=model_path,
@@ -210,11 +234,6 @@ class SentenceTransformerEmbedding(_BaseEmbedding):
             embed_batch_size=embed_batch_size,
             **kwargs,
         )
-        if not _LLAMA_AVAILABLE:
-            raise ImportError(
-                "SentenceTransformerEmbedding 需要安装 llama-index 和 sentence-transformers：\n"
-                "pip install llama-index sentence-transformers"
-            )
         try:
             from sentence_transformers import SentenceTransformer as _ST
         except ImportError:
@@ -261,5 +280,9 @@ class SentenceTransformerEmbedding(_BaseEmbedding):
         return (await self._aget_text_embeddings([text]))[0]
 
     async def _aget_text_embeddings(self, texts: List[str]) -> List[List[float]]:
-        return self._get_text_embeddings(texts)
+        # sentence_transformers.encode() 是 CPU 密集型阻塞调用。
+        # 直接在协程里调用会阻塞 asyncio 事件循环，在某些 llama-index 版本的
+        # span/callback 机制下还会触发 "This event loop is already running"。
+        # 正确做法：通过 asyncio.to_thread() 将其推入线程池执行。
+        return await asyncio.to_thread(self._get_text_embeddings, texts)
 

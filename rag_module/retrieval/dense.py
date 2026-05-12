@@ -14,6 +14,7 @@ DenseRetriever — 本地向量检索器（sentence-transformers + FAISS）。
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any, List, Optional
 
 from rag_module.base import BaseRetriever, Chunk, RetrievalResult
@@ -121,7 +122,8 @@ class DenseRetriever(BaseRetriever):
                 self._model = model
                 return model.encode(texts, normalize_embeddings=True)
 
-            embeddings = _build()
+            # sentence_transformers.encode() 是阻塞调用，通过 to_thread 避免阻塞事件循环
+            embeddings = await asyncio.to_thread(_build)
 
         # 归一化，使内积等价于余弦相似度
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
@@ -158,9 +160,10 @@ class DenseRetriever(BaseRetriever):
                 raise RuntimeError(
                     "DenseRetriever 尚未构建索引，请先调用 await retriever.build_index()"
                 )
-            query_vec = self._model.encode(
-                [query], normalize_embeddings=True
-            ).astype(np.float32)
+            model = self._model
+            query_vec = await asyncio.to_thread(
+                lambda: model.encode([query], normalize_embeddings=True).astype(np.float32)
+            )
 
         # 归一化查询向量
         norm = np.linalg.norm(query_vec)
