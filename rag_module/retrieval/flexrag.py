@@ -295,12 +295,12 @@ class FlexRAGRetriever(BaseRetriever):
         dense_w = 1.0 - self._bm25_weight
 
         # --- 向量检索 ---
-        # 直接同步调用：llama-index 的 retrieve() 内部会调用 asyncio.get_event_loop()，
-        # 若放入线程池执行器（run_in_executor）则线程中无事件循环，
-        # Python ≥ 3.10 会抛出 RuntimeError。直接调用是最安全的方式。
+        # 使用 llama-index 的异步 aretrieve()：它直接走 _aget_query_embedding() 路径，
+        # 不会在事件循环内部再调用 asyncio.get_event_loop().run_until_complete()，
+        # 从而避免 "This event loop is already running" 的嵌套事件循环冲突。
         dense_retriever = self._index.as_retriever(similarity_top_k=k)
         try:
-            dense_nodes = dense_retriever.retrieve(query)
+            dense_nodes = await dense_retriever.aretrieve(query)
         except Exception as exc:
             exc_str = str(exc)
             # httpx / httpcore 连接错误：Embedding 服务不可达
@@ -325,7 +325,7 @@ class FlexRAGRetriever(BaseRetriever):
 
         # --- BM25 混合（可选）---
         if self._bm25_retriever is not None and self._bm25_weight > 0:
-            bm25_nodes = self._bm25_retriever.retrieve(query)
+            bm25_nodes = await self._bm25_retriever.aretrieve(query)
             for node in bm25_nodes:
                 key = node.get_content()
                 bm25_score = (node.score or 0.0) * self._bm25_weight
