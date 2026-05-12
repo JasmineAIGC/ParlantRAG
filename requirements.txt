@@ -3,6 +3,9 @@
 # Parlant SDK
 parlant
 
+# LLM 评估器（LLMEvaluator）
+openai>=1.0.0
+
 # LlamaIndex 核心（FlexRAGRetriever 所需）
 llama-index>=0.11.0
 llama-index-vector-stores-faiss>=0.3.0
@@ -17,9 +20,6 @@ httpx>=0.27.0
 
 # DenseRetriever：本地向量检索（可选，不使用 DenseRetriever 时无需安装）
 # sentence-transformers>=3.0.0
-
-# LLMEvaluator：OpenAI 兼容 LLM 评价（可选）
-# openai>=1.0.0
 
 # BM25 混合检索（可选，FlexRAGRetriever bm25_weight > 0 时所需）
 # llama-index-retrievers-bm25>=0.4.0

@@ -1,8 +1,11 @@
 """
 Parlant 工具层。
 
-将 Retriever 和 Evaluator 包装为 Parlant 工具。
-这一层是 RAG 模块与 Parlant 框架之间的唯一接口。
+将 BaseRetriever 和 BaseEvaluator 的调用封装为两个 Parlant 工具：
+  - ``rag_search``          — 执行向量检索
+  - ``evaluate_retrieval``  — LLM 综合评估检索质量
+
+这一层是 rag_module 与 Parlant 框架之间的唯一接口。
 """
 from __future__ import annotations
 
@@ -11,7 +14,7 @@ from typing import Annotated, Any
 
 import parlant.sdk as p
 
-from .base import BaseRetriever, BaseEvaluator
+from rag_module.base import BaseRetriever, BaseEvaluator, Chunk, RetrievalResult
 
 
 def make_rag_tools(
@@ -19,10 +22,14 @@ def make_rag_tools(
     evaluator: BaseEvaluator,
 ) -> tuple[Any, Any]:
     """
-    根据传入的检索器和评价器，动态生成两个 Parlant 工具。
+    根据传入的检索器和评估器，动态生成两个 Parlant 工具函数。
+
+    Args:
+        retriever:  实现了 :class:`~rag_module.base.BaseRetriever` 的检索器。
+        evaluator:  实现了 :class:`~rag_module.base.BaseEvaluator` 的评估器。
 
     Returns:
-        (rag_search_tool, evaluate_retrieval_tool)
+        ``(rag_search, evaluate_retrieval)`` 两个可注册到 Agent 的 Parlant 工具。
     """
 
     @p.tool
@@ -37,9 +44,9 @@ def make_rag_tools(
         top_k: Annotated[
             int,
             p.ToolParameterOptions(
-                description="返回片段数量上限，默认 3"
+                description="返回片段数量上限，默认 5"
             ),
-        ] = 3,
+        ] = 5,
     ) -> p.ToolResult:
         """从知识库检索与查询最相关的文档片段"""
         result = await retriever.retrieve(query=query, top_k=top_k)
@@ -78,9 +85,7 @@ def make_rag_tools(
             ),
         ],
     ) -> p.ToolResult:
-        """评价 RAG 检索结果的质量（相关性、覆盖度、置信度）"""
-        from .base import Chunk, RetrievalResult
-
+        """对 RAG 检索结果进行多信号 LLM 综合评估（相关性、覆盖度、置信度）"""
         try:
             raw_chunks = json.loads(retrieved_chunks_json)
         except (json.JSONDecodeError, TypeError):
@@ -91,9 +96,10 @@ def make_rag_tools(
                 chunk_id=c.get("chunk_id", ""),
                 content=c.get("content", ""),
                 source=c.get("source", ""),
-                score=c.get("score", 0.0),
+                score=float(c.get("score", 0.0)),
             )
             for c in raw_chunks
+            if isinstance(c, dict)
         ]
         retrieval = RetrievalResult(
             query=user_question,
@@ -106,6 +112,18 @@ def make_rag_tools(
             retrieval=retrieval,
         )
 
+        signals_data: dict = {}
+        if eval_result.signals is not None:
+            s = eval_result.signals
+            signals_data = {
+                "avg_score": s.avg_score,
+                "max_score": s.max_score,
+                "min_score": s.min_score,
+                "keyword_coverage": s.keyword_coverage,
+                "source_diversity": s.source_diversity,
+                "missing_keywords": s.missing_keywords,
+            }
+
         return p.ToolResult(
             data={
                 "verdict": eval_result.verdict,
@@ -116,7 +134,7 @@ def make_rag_tools(
                 },
                 "conclusion": eval_result.conclusion,
                 "action_hint": eval_result.action_hint,
-                "details": eval_result.details,
+                "signals": signals_data,
             }
         )
 
