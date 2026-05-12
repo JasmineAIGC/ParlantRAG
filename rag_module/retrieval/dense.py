@@ -14,7 +14,6 @@ DenseRetriever — 本地向量检索器（sentence-transformers + FAISS）。
 """
 from __future__ import annotations
 
-import asyncio
 from typing import Any, List, Optional
 
 from rag_module.base import BaseRetriever, Chunk, RetrievalResult
@@ -122,7 +121,7 @@ class DenseRetriever(BaseRetriever):
                 self._model = model
                 return model.encode(texts, normalize_embeddings=True)
 
-            embeddings = await asyncio.get_running_loop().run_in_executor(None, _build)
+            embeddings = _build()
 
         # 归一化，使内积等价于余弦相似度
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)

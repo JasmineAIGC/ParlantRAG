@@ -261,8 +261,5 @@ class SentenceTransformerEmbedding(_BaseEmbedding):
         return (await self._aget_text_embeddings([text]))[0]
 
     async def _aget_text_embeddings(self, texts: List[str]) -> List[List[float]]:
-        import asyncio
-        return await asyncio.get_running_loop().run_in_executor(
-            None, self._get_text_embeddings, texts
-        )
+        return self._get_text_embeddings(texts)
 
