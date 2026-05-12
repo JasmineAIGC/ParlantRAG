@@ -232,13 +232,13 @@ class FlexRAGRetriever(BaseRetriever):
                 "FlexRAGRetriever 需要安装：pip install llama-index httpx"
             )
 
-        base_url = self._embedding_base_url.rstrip("/")
-        if base_url.endswith("/v1/embeddings"):
-            endpoint = base_url
-        elif base_url.endswith("/v1"):
-            endpoint = base_url + "/embeddings"
+        raw_base_url = self._embedding_base_url.rstrip("/")
+        if raw_base_url.endswith("/v1/embeddings"):
+            endpoint = raw_base_url
+        elif raw_base_url.endswith("/v1"):
+            endpoint = raw_base_url + "/embeddings"
         else:
-            endpoint = base_url + "/v1/embeddings"
+            endpoint = raw_base_url + "/v1/embeddings"
 
         api_key = self._embedding_api_key
         model_name = self._embedding_model
@@ -253,6 +253,7 @@ class FlexRAGRetriever(BaseRetriever):
 
             def __init__(self, **kwargs: Any) -> None:
                 super().__init__(**kwargs)
+                # endpoint is resolved once by the outer factory method
                 self._endpoint = endpoint
                 self._client = httpx.Client(timeout=60.0)
                 self._aclient = httpx.AsyncClient(timeout=60.0)
@@ -283,7 +284,7 @@ class FlexRAGRetriever(BaseRetriever):
                 return res[0]
 
             async def _aget_text_embeddings(self, texts: List[str]) -> List[List[float]]:
-                payload = {"model": self.model_name, "input": texts}
+                payload = {"model": self.model_name, "input": texts, "encoding_format": "float"}
                 headers: dict[str, str] = {}
                 if self.api_key:
                     headers["Authorization"] = f"Bearer {self.api_key}"
