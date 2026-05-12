@@ -4,8 +4,10 @@
 验证 FAISS 索引文件能否被正常加载，并打印基本的索引信息。
 不发起任何检索查询，仅确认知识库文件完整可用。
 
-运行方式（从项目根目录执行）：
-    PYTHONPATH=. python examples/01_load_kb.py
+运行方式（从项目根目录 或 examples/ 目录均可）：
+    python examples/01_load_kb.py
+    # 或
+    cd examples && python 01_load_kb.py
 
 前置条件：
     1. 用 FlexRAG scripts/build_knowledge_base.py 构建好知识库
@@ -19,6 +21,10 @@
 from __future__ import annotations
 
 import os
+import sys
+
+# 确保从任意目录运行时都能找到 rag_module（无需设置 PYTHONPATH）
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
 

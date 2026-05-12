@@ -4,8 +4,10 @@
 加载 FlexRAG 构建的 FAISS 知识库，执行查询检索，打印命中片段。
 不调用 LLM，仅验证向量检索流程。
 
-运行方式（从项目根目录执行）：
-    PYTHONPATH=. python examples/02_retrieval.py
+运行方式（从项目根目录 或 examples/ 目录均可）：
+    python examples/02_retrieval.py
+    # 或
+    cd examples && python 02_retrieval.py
 
 前置条件：
     1. 用 FlexRAG scripts/build_knowledge_base.py 构建好知识库
@@ -19,6 +21,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
+
+# 确保从任意目录运行时都能找到 rag_module（无需设置 PYTHONPATH）
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
 
