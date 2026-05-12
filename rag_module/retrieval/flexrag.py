@@ -298,7 +298,9 @@ class FlexRAGRetriever(BaseRetriever):
         # --- 向量检索 ---
         dense_retriever = self._index.as_retriever(similarity_top_k=k)
         try:
-            dense_nodes = await asyncio.to_thread(dense_retriever.retrieve, query)
+            dense_nodes = await asyncio.get_running_loop().run_in_executor(
+                None, dense_retriever.retrieve, query
+            )
         except Exception as exc:
             exc_str = str(exc)
             # httpx / httpcore 连接错误：Embedding 服务不可达
@@ -323,8 +325,8 @@ class FlexRAGRetriever(BaseRetriever):
 
         # --- BM25 混合（可选）---
         if self._bm25_retriever is not None and self._bm25_weight > 0:
-            bm25_nodes = await asyncio.to_thread(
-                self._bm25_retriever.retrieve, query
+            bm25_nodes = await asyncio.get_running_loop().run_in_executor(
+                None, self._bm25_retriever.retrieve, query
             )
             for node in bm25_nodes:
                 key = node.get_content()

@@ -122,7 +122,7 @@ class DenseRetriever(BaseRetriever):
                 self._model = model
                 return model.encode(texts, normalize_embeddings=True)
 
-            embeddings = await asyncio.to_thread(_build)
+            embeddings = await asyncio.get_running_loop().run_in_executor(None, _build)
 
         # 归一化，使内积等价于余弦相似度
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
