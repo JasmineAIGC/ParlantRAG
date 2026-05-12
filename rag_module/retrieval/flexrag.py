@@ -280,6 +280,35 @@ class FlexRAGRetriever(BaseRetriever):
         )
 
     # ------------------------------------------------------------------
+    # Public properties
+    # ------------------------------------------------------------------
+
+    @property
+    def persist_dir(self) -> str:
+        """知识库根目录路径。"""
+        return self._persist_dir
+
+    @property
+    def embedding_model(self) -> str:
+        """Embedding 模型名称。"""
+        return self._embedding_model
+
+    @property
+    def embedding_base_url(self) -> str:
+        """Embedding 服务的 base URL。"""
+        return self._embedding_base_url
+
+    @property
+    def doc_count(self) -> int:
+        """已加载的文档片段总数；索引未加载时返回 0。"""
+        if self._index is None:
+            return 0
+        try:
+            return len(self._index.docstore.docs)
+        except Exception:
+            return 0
+
+    # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
