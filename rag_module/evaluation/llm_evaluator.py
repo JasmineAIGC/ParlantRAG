@@ -256,8 +256,8 @@ class LLMEvaluator(BaseEvaluator):
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
-            # 尝试从 Markdown 代码块中提取
-            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+            # Attempt to extract JSON from a Markdown code block (multi-line safe)
+            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw)
             if match:
                 result = json.loads(match.group(1))
             else:
