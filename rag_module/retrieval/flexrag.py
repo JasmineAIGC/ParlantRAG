@@ -35,18 +35,19 @@ try:
 except ImportError:
     pass
 
-# Guard llama-index import so the whole rag_module package remains importable
-# even when llama-index is not installed. Runtime errors are raised in _load_index().
+# Guard llama-index / openai import so the whole rag_module package remains importable
+# even when these are not installed. Runtime errors are raised in _load_index().
 try:
     from pydantic import PrivateAttr
-    import httpx
+    from openai import OpenAI as _OpenAI, AsyncOpenAI as _AsyncOpenAI
     from llama_index.core.embeddings import BaseEmbedding as _BaseEmbedding
     _LLAMA_AVAILABLE = True
 except ImportError:
     _LLAMA_AVAILABLE = False
     _BaseEmbedding = object  # type: ignore[assignment,misc]
     PrivateAttr = lambda **kw: None  # type: ignore[assignment]  # noqa: E731
-    httpx = None  # type: ignore[assignment]
+    _OpenAI = None  # type: ignore[assignment]
+    _AsyncOpenAI = None  # type: ignore[assignment]
 
 from rag_module.base import BaseRetriever, Chunk, RetrievalResult
 
@@ -69,56 +70,61 @@ class OpenAILikeEmbedding(_BaseEmbedding):
     """
     最小化 OpenAI 兼容 Embedding 客户端，继承自 LlamaIndex ``BaseEmbedding``。
 
-    直接向 vLLM / OpenAI 兼容的 ``/v1/embeddings`` 端点发起 HTTP 请求，
-    同时支持同步和异步两种调用方式。
+    使用 ``openai.OpenAI`` / ``openai.AsyncOpenAI`` SDK 调用 vLLM / OpenAI 兼容的
+    ``/v1/embeddings`` 端点，同时支持同步和异步两种调用方式。
 
-    实现参考 FlexRAG ``flexrag/components/retrieval/base.py``，
+    实现参考 ``temp/embedding.py`` 中的 ``EmbeddingClient`` 模式，
     与知识库构建阶段使用完全相同的 Embedding 接口，保证向量维度一致。
 
     Args:
-        base_url:   Embedding 服务的 base URL（如 ``http://127.0.0.1:8018/v1``）。
-        model_name: Embedding 模型名称（如 ``Qwen3-Embedding-0.6B``）。
-        api_key:    API Key；本地部署时可设为任意非空字符串。
+        base_url:    Embedding 服务的 base URL（如 ``http://127.0.0.1:8018/v1``）。
+        model_name:  Embedding 模型名称（如 ``bge-large-zh-v1.5``）。
+        api_key:     API Key；本地部署时可设为任意非空字符串（默认 ``"EMPTY"``）。
+        access_key:  可选的 ``access-key`` 请求头（部分私有部署网关需要）。
     """
 
     # Pydantic 字段
     base_url: str
     model_name: str
     api_key: Optional[str] = None
+    access_key: Optional[str] = None
     embed_batch_size: int = 5  # inherited from BaseEmbedding; declared here for Pydantic
 
     # 非序列化内部变量
     _client: Any = PrivateAttr()
     _aclient: Any = PrivateAttr()
-    _endpoint: str = PrivateAttr()
 
     def __init__(
         self,
         base_url: str,
         model_name: str,
         api_key: Optional[str] = None,
+        access_key: Optional[str] = None,
         embed_batch_size: int = 5,
-        http_client: Optional[Any] = None,
-        async_http_client: Optional[Any] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
             base_url=base_url,
             model_name=model_name,
             api_key=api_key,
+            access_key=access_key,
             embed_batch_size=embed_batch_size,
             **kwargs,
         )
-        raw = base_url.rstrip("/")
-        if raw.endswith("/v1/embeddings"):
-            self._endpoint = raw
-        elif raw.endswith("/v1"):
-            self._endpoint = raw + "/embeddings"
-        else:
-            self._endpoint = raw + "/v1/embeddings"
+        headers = {}
+        if access_key:
+            headers["access-key"] = access_key
 
-        self._client = http_client or httpx.Client(timeout=60.0)
-        self._aclient = async_http_client or httpx.AsyncClient(timeout=60.0)
+        self._client = _OpenAI(
+            api_key=api_key or "EMPTY",
+            base_url=base_url,
+            default_headers=headers if headers else None,
+        )
+        self._aclient = _AsyncOpenAI(
+            api_key=api_key or "EMPTY",
+            base_url=base_url,
+            default_headers=headers if headers else None,
+        )
 
     # ------------------------------------------------------------------
     # 同步方法
@@ -131,19 +137,11 @@ class OpenAILikeEmbedding(_BaseEmbedding):
         return self._get_text_embeddings([text])[0]
 
     def _get_text_embeddings(self, texts: List[str]) -> List[List[float]]:
-        payload = {
-            "model": self.model_name,
-            "input": texts,
-            "encoding_format": "float",
-        }
-        headers: dict[str, str] = {}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        resp = self._client.post(self._endpoint, json=payload, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()["data"]
-        data.sort(key=lambda item: item["index"])
-        return [item["embedding"] for item in data]
+        response = self._client.embeddings.create(
+            model=self.model_name,
+            input=texts,
+        )
+        return [item.embedding for item in response.data]
 
     # ------------------------------------------------------------------
     # 异步方法
@@ -156,19 +154,11 @@ class OpenAILikeEmbedding(_BaseEmbedding):
         return (await self._aget_text_embeddings([text]))[0]
 
     async def _aget_text_embeddings(self, texts: List[str]) -> List[List[float]]:
-        payload = {
-            "model": self.model_name,
-            "input": texts,
-            "encoding_format": "float",
-        }
-        headers: dict[str, str] = {}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        resp = await self._aclient.post(self._endpoint, json=payload, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()["data"]
-        data.sort(key=lambda item: item["index"])
-        return [item["embedding"] for item in data]
+        response = await self._aclient.embeddings.create(
+            model=self.model_name,
+            input=texts,
+        )
+        return [item.embedding for item in response.data]
 
 
 # ---------------------------------------------------------------------------
@@ -206,24 +196,27 @@ class FlexRAGRetriever(BaseRetriever):
         persist_dir: str,
         embedding_base_url: str = "http://127.0.0.1:8018/v1",
         embedding_api_key: Optional[str] = None,
+        embedding_access_key: Optional[str] = None,
         embedding_model: str = "bge-large-zh-v1.5",
         top_k: int = 5,
         bm25_weight: float = 0.0,
     ) -> None:
         """
         Args:
-            persist_dir:          FlexRAG 知识库根目录（包含 ``faiss_index.bin`` 等文件）。
-            embedding_base_url:   Embedding 服务的 base URL（vLLM / OpenAI 兼容）。
-            embedding_api_key:    Embedding 服务的 API Key；本地部署时可省略或设为任意字符串。
-            embedding_model:      Embedding 模型名称，须与构建知识库时完全一致。
-            top_k:                默认返回的片段数量。
-            bm25_weight:          BM25 混合权重（0~1）。0.0 表示纯向量检索。
-                                  当 ``persist_dir/bm25_index/`` 存在且此值 > 0 时
-                                  自动启用混合检索。
+            persist_dir:            FlexRAG 知识库根目录（包含 ``faiss_index.bin`` 等文件）。
+            embedding_base_url:     Embedding 服务的 base URL（vLLM / OpenAI 兼容）。
+            embedding_api_key:      Embedding 服务的 API Key；本地部署时可省略或设为任意字符串。
+            embedding_access_key:   可选的 ``access-key`` 请求头（部分私有部署网关需要）。
+            embedding_model:        Embedding 模型名称，须与构建知识库时完全一致。
+            top_k:                  默认返回的片段数量。
+            bm25_weight:            BM25 混合权重（0~1）。0.0 表示纯向量检索。
+                                    当 ``persist_dir/bm25_index/`` 存在且此值 > 0 时
+                                    自动启用混合检索。
         """
         self._persist_dir = persist_dir
         self._embedding_base_url = embedding_base_url
         self._embedding_api_key = embedding_api_key
+        self._embedding_access_key = embedding_access_key
         self._embedding_model = embedding_model
         self._top_k = top_k
         self._bm25_weight = bm25_weight
@@ -244,15 +237,17 @@ class FlexRAGRetriever(BaseRetriever):
         ================  ==========================================
         参数               读取的环境变量
         ================  ==========================================
-        persist_dir        KNOWLEDGE_PERSIST_DIR / KNOWLEDGE_BASE_DIR
-        embedding_base_url EMBEDDING_BASE_URL / QWEN3_BASE_URL / LLM_BASE_URL
-        embedding_api_key  EMBEDDING_API_KEY / QWEN3_API_KEY / LLM_API_KEY
-        embedding_model    EMBEDDING_MODEL / QWEN3_MODEL / LLM_MODEL
-        top_k              TOP_K_RETRIEVAL / TOP_K
-        bm25_weight        BM25_WEIGHT
-        ================  ==========================================
+        persist_dir          KNOWLEDGE_PERSIST_DIR / KNOWLEDGE_BASE_DIR
+        embedding_base_url   EMBEDDING_BASE_URL / QWEN3_BASE_URL / LLM_BASE_URL
+        embedding_api_key    EMBEDDING_API_KEY / QWEN3_API_KEY / LLM_API_KEY
+        embedding_access_key EMBEDDING_ACCESS_KEY / QWEN3_ACCESS_KEY /
+                             CONTEXTMIND_ACCESS_KEY / LLM_ACCESS_KEY / ACCESS_KEY
+        embedding_model      EMBEDDING_MODEL / QWEN3_MODEL / LLM_MODEL
+        top_k                TOP_K_RETRIEVAL / TOP_K
+        bm25_weight          BM25_WEIGHT
+        ====================  ==========================================
 
-        与 ``temp/llm/.env`` 中的 ``EMBEDDING_MODEL`` / ``QWEN3_*`` 命名完全兼容。
+        与 ``temp/embedding.py`` 中的 ``EmbeddingConfig.from_env()`` 命名完全兼容。
         """
         pd = persist_dir or _first_env_local(
             ["KNOWLEDGE_PERSIST_DIR", "KNOWLEDGE_BASE_DIR"],
@@ -263,6 +258,15 @@ class FlexRAGRetriever(BaseRetriever):
             default="http://127.0.0.1:8018/v1",
         )
         api_key = _first_env_local(["EMBEDDING_API_KEY", "QWEN3_API_KEY", "LLM_API_KEY"])
+        access_key = _first_env_local(
+            [
+                "EMBEDDING_ACCESS_KEY",
+                "QWEN3_ACCESS_KEY",
+                "CONTEXTMIND_ACCESS_KEY",
+                "LLM_ACCESS_KEY",
+                "ACCESS_KEY",
+            ]
+        )
         model = _first_env_local(
             ["EMBEDDING_MODEL", "QWEN3_MODEL", "LLM_MODEL"],
             default="bge-large-zh-v1.5",
@@ -274,6 +278,7 @@ class FlexRAGRetriever(BaseRetriever):
             persist_dir=pd,
             embedding_base_url=base_url,
             embedding_api_key=api_key,
+            embedding_access_key=access_key,
             embedding_model=model,
             top_k=top_k,
             bm25_weight=bm25_weight,
@@ -338,11 +343,12 @@ class FlexRAGRetriever(BaseRetriever):
                 "或将 KNOWLEDGE_PERSIST_DIR 设置为已有知识库的正确目录（含 faiss_index.bin）。"
             )
 
-        # 使用与 FlexRAG 构建阶段相同的 OpenAILikeEmbedding
+        # 使用与 temp/embedding.py 相同的 openai SDK 模式初始化 OpenAILikeEmbedding
         self._embed_model = OpenAILikeEmbedding(
             base_url=self._embedding_base_url,
             model_name=self._embedding_model,
             api_key=self._embedding_api_key,
+            access_key=self._embedding_access_key,
         )
         Settings.embed_model = self._embed_model
 
