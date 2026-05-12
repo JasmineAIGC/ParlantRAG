@@ -14,7 +14,8 @@ OpenAILikeEmbedding — OpenAI 兼容 Embedding 客户端。
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional
+import os
+from typing import Any, List, Optional, Sequence
 
 # Guard llama-index / openai import so the whole rag_module package remains importable
 # even when these are not installed. Runtime errors are raised in _get_text_embeddings().
@@ -29,6 +30,14 @@ except ImportError:
     PrivateAttr = lambda **kw: None  # type: ignore[assignment]  # noqa: E731
     _OpenAI = None  # type: ignore[assignment]
     _AsyncOpenAI = None  # type: ignore[assignment]
+
+
+def _first_env(keys: Sequence[str], default: Optional[str] = None) -> Optional[str]:
+    """按顺序读取环境变量，返回首个非空值。"""
+    for key in keys:
+        if value := os.getenv(key):
+            return value
+    return default
 
 
 class OpenAILikeEmbedding(_BaseEmbedding):
@@ -47,8 +56,6 @@ class OpenAILikeEmbedding(_BaseEmbedding):
         api_key:     API Key；本地部署时可设为任意非空字符串（默认 ``"EMPTY"``）。
         access_key:  可选的 ``access-key`` 请求头（部分私有部署网关需要）。
     """
-
-    # Pydantic 字段
     base_url: str
     model_name: str
     api_key: Optional[str] = None
@@ -90,6 +97,46 @@ class OpenAILikeEmbedding(_BaseEmbedding):
             base_url=base_url,
             default_headers=headers if headers else None,
         )
+
+    # ------------------------------------------------------------------
+    # 工厂方法
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_env(cls) -> "OpenAILikeEmbedding":
+        """
+        从环境变量（或 ``.env`` 文件）创建实例，与 ``FlexRAGRetriever.from_env()``
+        使用完全相同的环境变量命名和优先级顺序：
+
+        ================  ==========================================
+        参数               读取的环境变量
+        ================  ==========================================
+        base_url          EMBEDDING_BASE_URL / QWEN3_BASE_URL / LLM_BASE_URL
+        api_key           EMBEDDING_API_KEY / QWEN3_API_KEY / LLM_API_KEY
+        access_key        EMBEDDING_ACCESS_KEY / QWEN3_ACCESS_KEY /
+                          CONTEXTMIND_ACCESS_KEY / LLM_ACCESS_KEY / ACCESS_KEY
+        model_name        EMBEDDING_MODEL / QWEN3_MODEL / LLM_MODEL
+        ================  ==========================================
+        """
+        base_url = _first_env(
+            ["EMBEDDING_BASE_URL", "QWEN3_BASE_URL", "LLM_BASE_URL"],
+            default="http://127.0.0.1:8018/v1",
+        )
+        api_key = _first_env(["EMBEDDING_API_KEY", "QWEN3_API_KEY", "LLM_API_KEY"])
+        access_key = _first_env(
+            [
+                "EMBEDDING_ACCESS_KEY",
+                "QWEN3_ACCESS_KEY",
+                "CONTEXTMIND_ACCESS_KEY",
+                "LLM_ACCESS_KEY",
+                "ACCESS_KEY",
+            ]
+        )
+        model = _first_env(
+            ["EMBEDDING_MODEL", "QWEN3_MODEL", "LLM_MODEL"],
+            default="bge-large-zh-v1.5",
+        )
+        return cls(base_url=base_url, model_name=model, api_key=api_key, access_key=access_key)
 
     # ------------------------------------------------------------------
     # 同步方法
