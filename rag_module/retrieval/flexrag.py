@@ -137,45 +137,96 @@ class FlexRAGRetriever(BaseRetriever):
         """
         从环境变量（或 ``.env`` 文件）加载 Embedding 配置并创建检索器实例。
 
-        使用本地 sentence-transformers 模式（与 ``temp/embedding.py`` 中的
-        ``EmbeddingConfig.from_env()`` 保持一致）：
+        支持两种 Embedding 模式，优先级：**本地 > API**：
 
-        ================  ==========================================
-        参数               读取的环境变量
-        ================  ==========================================
-        persist_dir          KNOWLEDGE_PERSIST_DIR / KNOWLEDGE_BASE_DIR
-        embedding_model_path EMBEDDING_MODEL_PATH（**必须设置**）
-        embedding_model      EMBEDDING_MODEL（可选，默认取路径末段目录名）
-        top_k                TOP_K_RETRIEVAL / TOP_K
-        bm25_weight          BM25_WEIGHT
-        ====================  ==========================================
+        **方式一：本地 sentence-transformers（EMBEDDING_MODEL_PATH 已设置时生效）**
 
-        ``EMBEDDING_MODEL_PATH`` 未设置时抛出 :class:`ValueError`，并给出配置示例。
+        ========================  =========================================
+        参数                       读取的环境变量
+        ========================  =========================================
+        persist_dir               KNOWLEDGE_PERSIST_DIR / KNOWLEDGE_BASE_DIR
+        embedding_model_path      EMBEDDING_MODEL_PATH（**必须设置**）
+        embedding_model           EMBEDDING_MODEL（可选，默认取路径末段目录名）
+        top_k                     TOP_K_RETRIEVAL / TOP_K
+        bm25_weight               BM25_WEIGHT
+        ========================  =========================================
+
+        **方式二：API 服务 / vLLM Embedding（EMBEDDING_BASE_URL 已设置时生效）**
+
+        ========================  =========================================
+        参数                       读取的环境变量
+        ========================  =========================================
+        persist_dir               KNOWLEDGE_PERSIST_DIR / KNOWLEDGE_BASE_DIR
+        embedding_base_url        EMBEDDING_BASE_URL（**必须设置**）
+        embedding_api_key         EMBEDDING_API_KEY / QWEN3_API_KEY / LLM_API_KEY
+        embedding_access_key      EMBEDDING_ACCESS_KEY / QWEN3_ACCESS_KEY /
+                                  CONTEXTMIND_ACCESS_KEY / LLM_ACCESS_KEY / ACCESS_KEY
+        embedding_model           EMBEDDING_MODEL / QWEN3_MODEL / LLM_MODEL
+        top_k                     TOP_K_RETRIEVAL / TOP_K
+        bm25_weight               BM25_WEIGHT
+        ========================  =========================================
+
+        两者均未设置时抛出 :class:`ValueError`。
         """
         pd = persist_dir or _first_env_local(
             ["KNOWLEDGE_PERSIST_DIR", "KNOWLEDGE_BASE_DIR"],
             default="./knowledge_base/knowledge_persist_dir/hotpotqa",
         )
 
-        model_path = os.getenv("EMBEDDING_MODEL_PATH")
-        if not model_path:
-            raise ValueError(
-                "EMBEDDING_MODEL_PATH 未设置。\n"
-                "请在 .env 文件中配置本地 Embedding 模型路径，例如：\n"
-                "  EMBEDDING_MODEL_PATH=/path/to/your/models/BAAI/bge-large-zh-v1.5\n"
-                "  EMBEDDING_MODEL=bge-large-zh-v1.5  # 可选，默认取路径末段目录名"
-            )
-
-        model = os.getenv("EMBEDDING_MODEL") or os.path.basename(model_path.rstrip("/\\"))
         top_k = int(_first_env_local(["TOP_K_RETRIEVAL", "TOP_K"]) or "5")
         bm25_weight = float(_first_env_local(["BM25_WEIGHT"]) or "0.0")
 
-        return cls(
-            persist_dir=pd,
-            embedding_model=model,
-            embedding_model_path=model_path,
-            top_k=top_k,
-            bm25_weight=bm25_weight,
+        # --- 本地模式（优先）---
+        model_path = os.getenv("EMBEDDING_MODEL_PATH")
+        if model_path:
+            model = os.getenv("EMBEDDING_MODEL") or os.path.basename(model_path.rstrip("/\\"))
+            return cls(
+                persist_dir=pd,
+                embedding_model=model,
+                embedding_model_path=model_path,
+                top_k=top_k,
+                bm25_weight=bm25_weight,
+            )
+
+        # --- API 模式（EMBEDDING_BASE_URL 已配置）---
+        base_url = os.getenv("EMBEDDING_BASE_URL")
+        if base_url:
+            api_key = _first_env_local(["EMBEDDING_API_KEY", "QWEN3_API_KEY", "LLM_API_KEY"])
+            access_key = _first_env_local(
+                [
+                    "EMBEDDING_ACCESS_KEY",
+                    "QWEN3_ACCESS_KEY",
+                    "CONTEXTMIND_ACCESS_KEY",
+                    "LLM_ACCESS_KEY",
+                    "ACCESS_KEY",
+                ]
+            )
+            model = _first_env_local(
+                ["EMBEDDING_MODEL", "QWEN3_MODEL", "LLM_MODEL"],
+                default="bge-large-zh-v1.5",
+            )
+            return cls(
+                persist_dir=pd,
+                embedding_base_url=base_url,
+                embedding_api_key=api_key,
+                embedding_access_key=access_key,
+                embedding_model=model,
+                embedding_model_path=None,
+                top_k=top_k,
+                bm25_weight=bm25_weight,
+            )
+
+        raise ValueError(
+            "未检测到 Embedding 配置，请在 .env 文件中设置以下其中一组：\n"
+            "\n"
+            "  方式一（本地 sentence-transformers）：\n"
+            "    EMBEDDING_MODEL_PATH=/path/to/your/models/BAAI/bge-large-zh-v1.5\n"
+            "    EMBEDDING_MODEL=bge-large-zh-v1.5  # 可选\n"
+            "\n"
+            "  方式二（API 服务 / vLLM）：\n"
+            "    EMBEDDING_BASE_URL=http://your-host:port/v1\n"
+            "    EMBEDDING_API_KEY=your-api-key\n"
+            "    EMBEDDING_MODEL=your-embedding-model-name\n"
         )
 
     @staticmethod
@@ -281,6 +332,31 @@ class FlexRAGRetriever(BaseRetriever):
                 "pip install llama-index llama-index-vector-stores-faiss faiss-cpu httpx"
             )
 
+    def _load_index(self) -> None:
+        """
+        加载 FAISS 持久化索引（以及可选的 BM25 索引）。
+
+        支持两种 Embedding 模式：
+
+        * **本地模式**（``embedding_model_path`` 已设置）：使用
+          ``SentenceTransformerEmbedding`` 在本地推理。
+        * **API 模式**（``embedding_model_path`` 未设置，但 ``embedding_base_url``
+          已设置）：使用 ``OpenAILikeEmbedding`` 调用外部 vLLM / OpenAI 兼容服务。
+
+        加载过程中会主动探测 Embedding 模型的输出维度，并与 FAISS 索引维度比对。
+        若两者不一致，立即抛出清晰的 ``ValueError``，而非等到检索时因 FAISS
+        ``assert d == self.d`` 抛出难以理解的 ``AssertionError``。
+        """
+        try:
+            import faiss as _faiss
+            from llama_index.core import Settings, StorageContext, load_index_from_storage
+            from llama_index.vector_stores.faiss import FaissVectorStore
+        except ImportError:
+            raise ImportError(
+                "FlexRAGRetriever 需要安装：\n"
+                "pip install llama-index llama-index-vector-stores-faiss faiss-cpu httpx"
+            )
+
         faiss_path = os.path.join(self._persist_dir, _FAISS_FILE)
         if not os.path.exists(faiss_path):
             raise FileNotFoundError(
@@ -289,17 +365,37 @@ class FlexRAGRetriever(BaseRetriever):
                 "或将 KNOWLEDGE_PERSIST_DIR 设置为已有知识库的正确目录（含 faiss_index.bin）。"
             )
 
-        # 本地 sentence-transformers 模型（与 temp/embedding.py 中 EmbeddingConfig.use_local=True 一致）
-        if not self._embedding_model_path:
-            raise ValueError(
-                "embedding_model_path 未设置，无法加载本地 Embedding 模型。\n"
-                "请通过 FlexRAGRetriever(embedding_model_path=...) 传入模型路径，\n"
-                "或在 .env 中设置 EMBEDDING_MODEL_PATH 后使用 FlexRAGRetriever.from_env()。"
+        # --- 选择 Embedding 后端 ---
+        if self._embedding_model_path:
+            # 本地 sentence-transformers 模式
+            self._embed_model = SentenceTransformerEmbedding(
+                model_path=self._embedding_model_path,
+                model_name=self._embedding_model,
             )
-        self._embed_model = SentenceTransformerEmbedding(
-            model_path=self._embedding_model_path,
-            model_name=self._embedding_model,
-        )
+            logger.info(
+                "[FlexRAGRetriever] 使用本地 Embedding 模型  model=%s  path=%s",
+                self._embedding_model, self._embedding_model_path,
+            )
+        elif self._embedding_base_url:
+            # API 模式：OpenAI 兼容 Embedding 服务
+            self._embed_model = OpenAILikeEmbedding(
+                base_url=self._embedding_base_url,
+                model_name=self._embedding_model,
+                api_key=self._embedding_api_key,
+                access_key=self._embedding_access_key,
+            )
+            logger.info(
+                "[FlexRAGRetriever] 使用 API Embedding 服务  model=%s  url=%s",
+                self._embedding_model, self._embedding_base_url,
+            )
+        else:
+            raise ValueError(
+                "未配置 Embedding 后端。\n"
+                "请设置以下其中一组环境变量：\n"
+                "  本地模式：EMBEDDING_MODEL_PATH=/path/to/model\n"
+                "  API  模式：EMBEDDING_BASE_URL=http://host:port/v1  EMBEDDING_MODEL=model-name\n"
+                "或直接使用 FlexRAGRetriever.from_env() 自动读取配置。"
+            )
         Settings.embed_model = self._embed_model
 
         # --- 主动维度校验（参考 MultiVectorRetriever._detect_embedding_dim）---
@@ -313,19 +409,29 @@ class FlexRAGRetriever(BaseRetriever):
             probe_vec = self._embed_model.get_text_embedding("维度探测")
             embed_dim = len(probe_vec)
         except Exception as probe_exc:
+            mode_desc = (
+                f"路径：{self._embedding_model_path}"
+                if self._embedding_model_path
+                else f"URL：{self._embedding_base_url}"
+            )
             raise RuntimeError(
                 f"Embedding 模型维度探测失败（模型：{self._embedding_model}，"
-                f"路径：{self._embedding_model_path}）。\n"
+                f"{mode_desc}）。\n"
                 f"原始错误：{probe_exc}"
             ) from probe_exc
 
         if embed_dim != faiss_dim:
+            mode_desc = (
+                f"  当前模型路径：{self._embedding_model_path}\n"
+                if self._embedding_model_path
+                else f"  当前 API URL：{self._embedding_base_url}\n"
+            )
             raise ValueError(
                 f"Embedding 维度与 FAISS 索引不匹配！\n"
                 f"  FAISS 索引维度：{faiss_dim}\n"
                 f"  当前模型输出维度：{embed_dim}\n"
                 f"  当前模型名称：{self._embedding_model}\n"
-                f"  当前模型路径：{self._embedding_model_path}\n"
+                f"{mode_desc}"
                 f"请换用输出维度为 {faiss_dim} 的 Embedding 模型（与构建知识库时完全一致），\n"
                 f"或在配置前先调用 FlexRAGRetriever.get_index_dim(persist_dir) 查询知识库所需维度。"
             )
