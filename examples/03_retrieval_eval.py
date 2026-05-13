@@ -43,7 +43,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from rag_module.retrieval import FlexRAGRetriever  # noqa: E402
-from rag_module.evaluation import LLMEvaluator     # noqa: E402
+from rag_module.evaluator import LLMEvaluator      # noqa: E402
 
 # 修改为你的实际查询词
 QUERY = "请问知识库中有哪些相关内容？"

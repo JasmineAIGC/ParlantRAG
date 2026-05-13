@@ -41,8 +41,8 @@ import logging
 import os
 from typing import Any, Optional
 
-from rag_module.api_client import first_env
-from rag_module.base import BaseRetriever, Chunk, RetrievalResult
+from rag_module.utils import first_env
+from rag_module.retrieval.types import Chunk, RetrievalResult
 from rag_module.retrieval.embedding import OpenAILikeEmbedding, SentenceTransformerEmbedding
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ _FAISS_FILE = "faiss_index.bin"
 # FlexRAGRetriever
 # ---------------------------------------------------------------------------
 
-class FlexRAGRetriever(BaseRetriever):
+class FlexRAGRetriever:
     """
     读取由 FlexRAG ``MultiVectorRetriever`` 持久化的目录，执行向量（+可选 BM25）检索。
 
@@ -295,29 +295,6 @@ class FlexRAGRetriever(BaseRetriever):
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
-
-    def _load_index(self) -> None:
-        """
-        加载 FAISS 持久化索引（以及可选的 BM25 索引）。
-
-        实现参考 FlexRAG ``MultiVectorRetriever._load_index()``：
-        使用 ``SentenceTransformerEmbedding`` 在本地加载 Embedding 模型
-        （与 ``temp/embedding.py`` 中的 ``EmbeddingClient`` 本地模式一致），
-        通过 ``FaissVectorStore + StorageContext`` 恢复 ``VectorStoreIndex``。
-
-        加载过程中会主动探测 Embedding 模型的输出维度，并与 FAISS 索引维度比对。
-        若两者不一致，立即抛出清晰的 ``ValueError``，而非等到检索时因 FAISS
-        ``assert d == self.d`` 抛出难以理解的 ``AssertionError``。
-        """
-        try:
-            import faiss as _faiss
-            from llama_index.core import Settings, StorageContext, load_index_from_storage
-            from llama_index.vector_stores.faiss import FaissVectorStore
-        except ImportError:
-            raise ImportError(
-                "FlexRAGRetriever 需要安装：\n"
-                "pip install llama-index llama-index-vector-stores-faiss faiss-cpu httpx"
-            )
 
     def _load_index(self) -> None:
         """

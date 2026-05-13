@@ -14,12 +14,13 @@ LLM 客户端 — 基于 LiteLLM，接入本地 vLLM / OpenAI 兼容端点。
 from __future__ import annotations
 
 import logging
-import os
 import re
 from dataclasses import dataclass
 from typing import List, Optional
 
-from rag_module.api_client import first_env
+from rag_module.utils import first_env
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # 常量

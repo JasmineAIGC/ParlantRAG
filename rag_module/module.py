@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import parlant.sdk as p
 
-from rag_module.base import BaseRetriever, BaseEvaluator
 from rag_module.retrieval import KeywordRetriever
 from rag_module.tools import make_rag_tools
 
@@ -40,13 +39,13 @@ class RAGModule:
 
     def __init__(
         self,
-        evaluator: BaseEvaluator,
-        retriever: BaseRetriever | None = None,
+        evaluator: "LLMEvaluator",
+        retriever: object | None = None,
         documents: list[dict] | None = None,
     ) -> None:
         """
         Args:
-            evaluator:  评估器实例（必填）。推荐使用 :class:`~rag_module.evaluation.LLMEvaluator`。
+            evaluator:  评估器实例（必填）。推荐使用 :class:`~rag_module.evaluator.LLMEvaluator`。
             retriever:  检索器实例。不传时使用内置 :class:`~rag_module.retrieval.KeywordRetriever`。
             documents:  当使用内置 KeywordRetriever 时，传入文档列表。
                         格式：``[{"id": "...", "content": "...", "source": "..."}]``
@@ -56,7 +55,7 @@ class RAGModule:
                 raise ValueError(
                     "未传入 retriever 时，必须提供 documents 参数（用于内置 KeywordRetriever）。"
                 )
-            self._retriever: BaseRetriever = KeywordRetriever(documents)
+            self._retriever = KeywordRetriever(documents)
         else:
             self._retriever = retriever
 

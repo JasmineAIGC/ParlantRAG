@@ -1,7 +1,7 @@
 """
 Parlant 工具层。
 
-将 BaseRetriever 和 BaseEvaluator 的调用封装为两个 Parlant 工具：
+将检索器和评估器的调用封装为两个 Parlant 工具：
   - ``rag_search``          — 执行向量检索
   - ``evaluate_retrieval``  — LLM 综合评估检索质量
 
@@ -14,19 +14,19 @@ from typing import Annotated, Any
 
 import parlant.sdk as p
 
-from rag_module.base import BaseRetriever, BaseEvaluator, Chunk, RetrievalResult
+from rag_module.retrieval.types import Chunk, RetrievalResult
 
 
 def make_rag_tools(
-    retriever: BaseRetriever,
-    evaluator: BaseEvaluator,
+    retriever: Any,
+    evaluator: Any,
 ) -> tuple[Any, Any]:
     """
     根据传入的检索器和评估器，动态生成两个 Parlant 工具函数。
 
     Args:
-        retriever:  实现了 :class:`~rag_module.base.BaseRetriever` 的检索器。
-        evaluator:  实现了 :class:`~rag_module.base.BaseEvaluator` 的评估器。
+        retriever:  检索器实例（实现 ``retrieve(query, top_k)`` 异步方法）。
+        evaluator:  评估器实例（实现 ``evaluate(question, retrieval)`` 异步方法）。
 
     Returns:
         ``(rag_search, evaluate_retrieval)`` 两个可注册到 Agent 的 Parlant 工具。

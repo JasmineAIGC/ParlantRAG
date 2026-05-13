@@ -17,10 +17,10 @@ from __future__ import annotations
 import asyncio
 from typing import Any, List, Optional
 
-from rag_module.base import BaseRetriever, Chunk, RetrievalResult
+from rag_module.retrieval.types import Chunk, RetrievalResult
 
 
-class DenseRetriever(BaseRetriever):
+class DenseRetriever:
     """
     基于向量编码 + FAISS 内积索引的向量检索器。
 

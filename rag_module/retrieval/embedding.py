@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, List, Optional
 
-from rag_module.api_client import first_env, make_openai_clients
+from rag_module.utils import first_env, make_openai_clients
 
 # guard：llama-index + pydantic（SentenceTransformerEmbedding 和 OpenAILikeEmbedding
 # 都需要，因此单独保护）。
