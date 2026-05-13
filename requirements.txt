@@ -1,0 +1,30 @@
+# ParlantRAG 核心依赖
+
+# Parlant SDK
+parlant
+
+# LLM 客户端（参考 temp/llm/llm_client.py，基于 LiteLLM 调用本地 vLLM / OpenAI 兼容端点）
+litellm>=1.40.0
+
+# 环境变量加载（.env 文件）
+python-dotenv>=1.0.0
+
+# LlamaIndex 核心（FlexRAGRetriever 所需，与 FlexRAG MultiVectorRetriever 兼容）
+llama-index>=0.11.0
+llama-index-vector-stores-faiss>=0.3.0
+
+# FAISS 向量库（CPU 版，GPU 环境可替换为 faiss-gpu）
+faiss-cpu>=1.8.0
+
+# OpenAI SDK（OpenAILikeEmbedding / FlexRAGRetriever Embedding 调用，参考 temp/embedding.py）
+openai>=1.0.0
+
+# ── 可选依赖 ────────────────────────────────────────────────────────────────
+
+# DenseRetriever：本地向量检索（可选，不使用 DenseRetriever 时无需安装）
+# sentence-transformers>=3.0.0
+
+# BM25 混合检索（可选，FlexRAGRetriever bm25_weight > 0 时所需）
+# llama-index-retrievers-bm25>=0.4.0
+# rank_bm25>=0.2.2
+# jieba>=0.42.1
