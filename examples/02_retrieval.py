@@ -42,7 +42,7 @@ load_dotenv()
 from rag_module.retrieval import FlexRAGRetriever  # noqa: E402
 
 # 修改为你的实际查询词
-QUERY = "请问知识库中有哪些相关内容？"
+QUERY = "what is one of the stars of  The Newcomers known for？"
 TOP_K = 5
 
 
