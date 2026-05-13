@@ -1,9 +1,9 @@
 """
 OpenAILikeEmbedding — OpenAI 兼容 Embedding 客户端。
 
-继承自 LlamaIndex ``BaseEmbedding``，通过 ``openai.OpenAI`` /
-``openai.AsyncOpenAI`` SDK 调用 vLLM / OpenAI 兼容的 ``/v1/embeddings`` 端点，
-支持同步和异步两种调用方式，以及私有部署网关的 ``access-key`` 请求头。
+继承自 LlamaIndex ``BaseEmbedding``，通过 :func:`rag_module.api_client.make_openai_clients`
+获取 ``openai.OpenAI`` / ``openai.AsyncOpenAI`` SDK 实例，调用 vLLM / OpenAI 兼容的
+``/v1/embeddings`` 端点，支持同步和异步两种调用方式，以及私有部署网关的 ``access-key`` 请求头。
 
 实现参考 FlexRAG ``flexrag/components/retrieval/base.py`` 中的同名类，
 与知识库构建阶段使用完全相同的 Embedding 接口，保证向量维度一致。
@@ -15,11 +15,12 @@ OpenAILikeEmbedding — OpenAI 兼容 Embedding 客户端。
 from __future__ import annotations
 
 import asyncio
-import os
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Optional
 
-# 第一层 guard：llama-index + pydantic（SentenceTransformerEmbedding 和 OpenAILikeEmbedding
-# 都需要，因此单独保护；openai SDK 不在此层，避免 openai 未安装时连 BaseEmbedding 也丢失）。
+from rag_module.api_client import first_env, make_openai_clients
+
+# guard：llama-index + pydantic（SentenceTransformerEmbedding 和 OpenAILikeEmbedding
+# 都需要，因此单独保护）。
 try:
     from pydantic import PrivateAttr
     from llama_index.core.embeddings import BaseEmbedding as _BaseEmbedding
@@ -28,24 +29,6 @@ except ImportError:
     _LLAMA_AVAILABLE = False
     _BaseEmbedding = object  # type: ignore[assignment,misc]
     PrivateAttr = lambda **kw: None  # type: ignore[assignment]  # noqa: E731
-
-# 第二层 guard：openai SDK（仅 OpenAILikeEmbedding 需要；与上层分开，
-# 保证 openai 未安装时 _BaseEmbedding 仍能正确指向 llama-index 的 BaseEmbedding）。
-try:
-    from openai import OpenAI as _OpenAI, AsyncOpenAI as _AsyncOpenAI
-    _OPENAI_AVAILABLE = True
-except ImportError:
-    _OPENAI_AVAILABLE = False
-    _OpenAI = None  # type: ignore[assignment]
-    _AsyncOpenAI = None  # type: ignore[assignment]
-
-
-def _first_env(keys: Sequence[str], default: Optional[str] = None) -> Optional[str]:
-    """按顺序读取环境变量，返回首个非空值。"""
-    for key in keys:
-        if value := os.getenv(key):
-            return value
-    return default
 
 
 class OpenAILikeEmbedding(_BaseEmbedding):
@@ -88,11 +71,6 @@ class OpenAILikeEmbedding(_BaseEmbedding):
                 "OpenAILikeEmbedding 需要安装 llama-index：\n"
                 "pip install llama-index"
             )
-        if not _OPENAI_AVAILABLE:
-            raise ImportError(
-                "OpenAILikeEmbedding 需要安装 openai SDK：\n"
-                "pip install openai>=1.0.0"
-            )
         super().__init__(
             base_url=base_url,
             model_name=model_name,
@@ -101,20 +79,7 @@ class OpenAILikeEmbedding(_BaseEmbedding):
             embed_batch_size=embed_batch_size,
             **kwargs,
         )
-        headers = {}
-        if access_key:
-            headers["access-key"] = access_key
-
-        self._client = _OpenAI(
-            api_key=api_key or "EMPTY",
-            base_url=base_url,
-            default_headers=headers if headers else None,
-        )
-        self._aclient = _AsyncOpenAI(
-            api_key=api_key or "EMPTY",
-            base_url=base_url,
-            default_headers=headers if headers else None,
-        )
+        self._client, self._aclient = make_openai_clients(base_url, api_key, access_key)
 
     # ------------------------------------------------------------------
     # 工厂方法
@@ -136,12 +101,12 @@ class OpenAILikeEmbedding(_BaseEmbedding):
         model_name        EMBEDDING_MODEL / QWEN3_MODEL / LLM_MODEL
         ================  ==========================================
         """
-        base_url = _first_env(
+        base_url = first_env(
             ["EMBEDDING_BASE_URL", "QWEN3_BASE_URL", "LLM_BASE_URL"],
             default="http://127.0.0.1:8018/v1",
         )
-        api_key = _first_env(["EMBEDDING_API_KEY", "QWEN3_API_KEY", "LLM_API_KEY"])
-        access_key = _first_env(
+        api_key = first_env(["EMBEDDING_API_KEY", "QWEN3_API_KEY", "LLM_API_KEY"])
+        access_key = first_env(
             [
                 "EMBEDDING_ACCESS_KEY",
                 "QWEN3_ACCESS_KEY",
@@ -150,7 +115,7 @@ class OpenAILikeEmbedding(_BaseEmbedding):
                 "ACCESS_KEY",
             ]
         )
-        model = _first_env(
+        model = first_env(
             ["EMBEDDING_MODEL", "QWEN3_MODEL", "LLM_MODEL"],
             default="bge-large-zh-v1.5",
         )

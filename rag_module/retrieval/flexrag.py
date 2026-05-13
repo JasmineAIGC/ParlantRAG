@@ -39,28 +39,15 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
 
-try:
-    from dotenv import load_dotenv as _load_dotenv
-    _load_dotenv()
-except ImportError:
-    pass
-
+from rag_module.api_client import first_env
 from rag_module.base import BaseRetriever, Chunk, RetrievalResult
 from rag_module.retrieval.embedding import OpenAILikeEmbedding, SentenceTransformerEmbedding
 
 logger = logging.getLogger(__name__)
 
 _FAISS_FILE = "faiss_index.bin"
-
-
-def _first_env_local(keys: Sequence[str], default: Optional[str] = None) -> Optional[str]:
-    """按顺序读取环境变量，返回首个非空值。"""
-    for key in keys:
-        if value := os.getenv(key):
-            return value
-    return default
 
 
 # ---------------------------------------------------------------------------
@@ -168,13 +155,13 @@ class FlexRAGRetriever(BaseRetriever):
 
         两者均未设置时抛出 :class:`ValueError`。
         """
-        pd = persist_dir or _first_env_local(
+        pd = persist_dir or first_env(
             ["KNOWLEDGE_PERSIST_DIR", "KNOWLEDGE_BASE_DIR"],
             default="./knowledge_base/knowledge_persist_dir/hotpotqa",
         )
 
-        top_k = int(_first_env_local(["TOP_K_RETRIEVAL", "TOP_K"]) or "5")
-        bm25_weight = float(_first_env_local(["BM25_WEIGHT"]) or "0.0")
+        top_k = int(first_env(["TOP_K_RETRIEVAL", "TOP_K"]) or "5")
+        bm25_weight = float(first_env(["BM25_WEIGHT"]) or "0.0")
 
         # --- 本地模式（优先）---
         model_path = os.getenv("EMBEDDING_MODEL_PATH")
@@ -191,8 +178,8 @@ class FlexRAGRetriever(BaseRetriever):
         # --- API 模式（EMBEDDING_BASE_URL 已配置）---
         base_url = os.getenv("EMBEDDING_BASE_URL")
         if base_url:
-            api_key = _first_env_local(["EMBEDDING_API_KEY", "QWEN3_API_KEY", "LLM_API_KEY"])
-            access_key = _first_env_local(
+            api_key = first_env(["EMBEDDING_API_KEY", "QWEN3_API_KEY", "LLM_API_KEY"])
+            access_key = first_env(
                 [
                     "EMBEDDING_ACCESS_KEY",
                     "QWEN3_ACCESS_KEY",
@@ -201,7 +188,7 @@ class FlexRAGRetriever(BaseRetriever):
                     "ACCESS_KEY",
                 ]
             )
-            model = _first_env_local(
+            model = first_env(
                 ["EMBEDDING_MODEL", "QWEN3_MODEL", "LLM_MODEL"],
                 default="bge-large-zh-v1.5",
             )

@@ -17,15 +17,9 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from typing import List, Optional
 
-logger = logging.getLogger(__name__)
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+from rag_module.api_client import first_env
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -50,14 +44,6 @@ _LITELLM_PROVIDER_PREFIXES = (
 # ---------------------------------------------------------------------------
 # 内部工具函数
 # ---------------------------------------------------------------------------
-
-def _first_env(keys: Sequence[str], default: Optional[str] = None) -> Optional[str]:
-    """按顺序读取环境变量，返回首个非空值。"""
-    for key in keys:
-        if value := os.getenv(key):
-            return value
-    return default
-
 
 def _is_thinking_model(model: str) -> bool:
     """若模型名称表明它是推理型模型，返回 True。"""
@@ -177,7 +163,7 @@ class LLMConfig:
         Raises:
             ValueError: 若无法找到任何 API Key。
         """
-        api_key = _first_env([
+        api_key = first_env([
             "QWEN3_API_KEY", "LLM_API_KEY", "CONTEXTMIND_API_KEY",
             "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "QWEN_API_KEY",
         ])
@@ -187,25 +173,25 @@ class LLMConfig:
                 "请在 .env 文件中设置 LLM_API_KEY（或 QWEN3_API_KEY / OPENAI_API_KEY）。"
             )
 
-        base_url = _first_env([
+        base_url = first_env([
             "QWEN3_BASE_URL", "LLM_BASE_URL", "CONTEXTMIND_BASE_URL",
             "OPENAI_BASE_URL", "DEEPSEEK_BASE_URL", "QWEN_BASE_URL",
         ])
-        model = _first_env([
+        model = first_env([
             "QWEN3_MODEL", "LLM_MODEL", "CONTEXTMIND_MODEL",
             "OPENAI_MODEL", "DEEPSEEK_MODEL", "QWEN_MODEL",
         ], default=DEFAULT_MODEL)
 
-        temperature_str = _first_env(["QWEN3_TEMPERATURE", "LLM_TEMPERATURE", "OPENAI_TEMPERATURE"])
+        temperature_str = first_env(["QWEN3_TEMPERATURE", "LLM_TEMPERATURE", "OPENAI_TEMPERATURE"])
         temperature = float(temperature_str) if temperature_str else DEFAULT_TEMPERATURE
 
         max_tokens = (
             int(v)
-            if (v := _first_env(["QWEN3_MAX_TOKENS", "LLM_MAX_TOKENS", "MAX_TOKENS"]))
+            if (v := first_env(["QWEN3_MAX_TOKENS", "LLM_MAX_TOKENS", "MAX_TOKENS"]))
             else DEFAULT_MAX_TOKENS
         )
 
-        enable_thinking_str = _first_env(["LLM_ENABLE_THINKING", "ENABLE_THINKING"])
+        enable_thinking_str = first_env(["LLM_ENABLE_THINKING", "ENABLE_THINKING"])
         if enable_thinking_str is not None:
             enable_thinking: Optional[bool] = (
                 enable_thinking_str.lower() not in ("false", "0", "no", "off")
