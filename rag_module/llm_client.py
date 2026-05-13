@@ -96,9 +96,11 @@ def _configure_litellm(model_name: str) -> None:
         litellm.failure_callback = []
         litellm.callbacks = []
         litellm.suppress_debug_info = True
-        # 关闭 SSL 证书验证：内网 vLLM 端点通常使用自签名证书或纯 HTTP，
-        # litellm 默认开启 verify=True 会导致证书校验失败（SSL: CERTIFICATE_VERIFY_FAILED）。
-        litellm.ssl_verify = False
+        # SSL 证书验证：内网 vLLM 端点常用自签名证书或纯 HTTP。
+        # 默认关闭验证以适配常见部署场景；生产环境可设 LLM_SSL_VERIFY=true 开启。
+        import os as _os
+        _ssl_verify_str = _os.environ.get("LLM_SSL_VERIFY", "false").lower()
+        litellm.ssl_verify = _ssl_verify_str not in ("false", "0", "no", "off")
 
         _zero_cost: dict = {
             "max_tokens": 32768,
