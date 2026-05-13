@@ -82,6 +82,7 @@ def _configure_litellm(model_name: str) -> None:
     - 禁用 success/failure 回调（抑制 async handler GC 噪音）
     - 注册本地模型零价格条目（消除 "not in cost map" DEBUG 日志）
     - 将 LiteLLM logger 提升至 WARNING 级别
+    - 关闭 SSL 证书校验（适配内网自签名证书 / HTTP vLLM 端点）
     """
     import logging as _logging
     _litellm_logger = _logging.getLogger("LiteLLM")
@@ -95,6 +96,9 @@ def _configure_litellm(model_name: str) -> None:
         litellm.failure_callback = []
         litellm.callbacks = []
         litellm.suppress_debug_info = True
+        # 关闭 SSL 证书验证：内网 vLLM 端点通常使用自签名证书或纯 HTTP，
+        # litellm 默认开启 verify=True 会导致证书校验失败（SSL: CERTIFICATE_VERIFY_FAILED）。
+        litellm.ssl_verify = False
 
         _zero_cost: dict = {
             "max_tokens": 32768,
@@ -294,15 +298,30 @@ class LLMClient:
             else self._config.model
         )
 
-        response = await self._litellm.acompletion(
-            model=model_str,
-            messages=messages,
-            api_base=self._config.base_url,
-            api_key=self._config.api_key,
-            temperature=temp,
-            max_tokens=self._config.max_tokens,
-            **extra_kwargs,
-        )
+        try:
+            response = await self._litellm.acompletion(
+                model=model_str,
+                messages=messages,
+                api_base=self._config.base_url,
+                api_key=self._config.api_key,
+                temperature=temp,
+                max_tokens=self._config.max_tokens,
+                num_retries=0,  # 连接失败时快速报错，避免无效重试延迟
+                **extra_kwargs,
+            )
+        except Exception as exc:
+            _msg = str(exc).lower()
+            if any(k in _msg for k in ("connection", "connect", "refused", "unreachable", "timeout")):
+                url = self._config.base_url or "(未配置)"
+                raise RuntimeError(
+                    f"无法连接到 LLM 服务（{url}）。\n"
+                    "请确认：\n"
+                    "  1. vLLM / LLM 服务已启动并在该地址上正常监听\n"
+                    "  2. .env 中的 QWEN3_BASE_URL / LLM_BASE_URL 端口和地址正确\n"
+                    "  3. 网络可达性（防火墙 / 端口转发 / VPN）\n"
+                    f"原始错误：{exc}"
+                ) from exc
+            raise
 
         text: str = response.choices[0].message.content or ""
         # 剥除推理模型（Qwen3 / DeepSeek-R1）输出的思考块
