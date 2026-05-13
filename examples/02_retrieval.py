@@ -24,11 +24,11 @@ import logging
 import os
 import sys
 
-# 确保从任意目录运行时都能找到 rag_module（无需设置 PYTHONPATH）
+# 确保从任意目录运行时都能找到 parlant_rag（无需设置 PYTHONPATH）
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 配置日志：将 INFO 及以上级别输出到控制台，包含完整异常 traceback。
-# 必须在 import rag_module 之前完成，以便 rag_module 内部的 logger 正确初始化。
+# 必须在 import parlant_rag 之前完成，以便 parlant_rag 内部的 logger 正确初始化。
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
@@ -39,7 +39,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from rag_module.retrieval import FlexRAGRetriever  # noqa: E402
+from parlant_rag.retrieval import FlexRAGRetriever  # noqa: E402
 
 # 修改为你的实际查询词
 QUERY = "what is one of the stars of  The Newcomers known for？"

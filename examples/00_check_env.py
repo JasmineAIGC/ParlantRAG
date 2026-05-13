@@ -26,7 +26,7 @@ import os
 import sys
 import time
 
-# 确保从任意目录运行时都能找到 rag_module（无需设置 PYTHONPATH）
+# 确保从任意目录运行时都能找到 parlant_rag（无需设置 PYTHONPATH）
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv

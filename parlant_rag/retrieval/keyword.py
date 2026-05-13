@@ -5,7 +5,7 @@ KeywordRetriever — 关键词（Jaccard）检索器。
 """
 from __future__ import annotations
 
-from rag_module.retrieval.types import Chunk, RetrievalResult
+from parlant_rag.retrieval.types import Chunk, RetrievalResult
 
 
 class KeywordRetriever:

@@ -23,7 +23,7 @@ import logging
 import os
 import sys
 
-# 确保从任意目录运行时都能找到 rag_module（无需设置 PYTHONPATH）
+# 确保从任意目录运行时都能找到 parlant_rag（无需设置 PYTHONPATH）
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 配置日志：将 INFO 及以上级别输出到控制台，包含完整异常 traceback。
@@ -37,7 +37,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from rag_module.retrieval import FlexRAGRetriever  # noqa: E402
+from parlant_rag.retrieval import FlexRAGRetriever  # noqa: E402
 
 
 def main() -> None:

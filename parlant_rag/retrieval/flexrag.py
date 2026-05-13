@@ -22,7 +22,7 @@ FlexRAGRetriever — 加载 FlexRAG 构建的 FAISS 向量知识库。
 本模块            FlexRAG 原始位置
 =============  ===============================================
 OpenAILikeEmbedding   flexrag/components/retrieval/base.py
-                      （实现见 rag_module/retrieval/embedding.py）
+                      （实现见 model_client/api/embedding.py）
 FlexRAGRetriever      flexrag/components/retrieval/multi_vector_retriever.py
                       (MultiVectorRetriever._load_index + retrieve)
                   +   flexrag/components/retrieval/retrieval_opt.py
@@ -42,7 +42,7 @@ import os
 from typing import Any, Optional
 
 from model_client._utils import first_env
-from rag_module.retrieval.types import Chunk, RetrievalResult
+from parlant_rag.retrieval.types import Chunk, RetrievalResult
 from model_client.api.embedding import OpenAILikeEmbedding
 from model_client.local.embedding import SentenceTransformerEmbedding
 
@@ -440,7 +440,7 @@ class FlexRAGRetriever:
 
     async def retrieve(self, query: str, top_k: Optional[int] = None) -> RetrievalResult:
         """
-        执行向量检索（可选 BM25 混合），返回 :class:`~rag_module.retrieval.types.RetrievalResult`。
+        执行向量检索（可选 BM25 混合），返回 :class:`~parlant_rag.retrieval.types.RetrievalResult`。
 
         算法参考 FlexRAG ``retrieval_opt.HybridRetriever.retrieve()``
         （``third_party/FlexRAG/flexrag/components/retrieval/retrieval_opt.py``）：
@@ -456,7 +456,7 @@ class FlexRAGRetriever:
             top_k:  返回片段数量，不传则使用构造时的 ``top_k``。
 
         Returns:
-            :class:`~rag_module.retrieval.types.RetrievalResult`
+            :class:`~parlant_rag.retrieval.types.RetrievalResult`
         """
         k = top_k if top_k is not None else self._top_k
         dense_w = 1.0 - self._bm25_weight
