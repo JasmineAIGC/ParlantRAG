@@ -93,9 +93,6 @@ async def _check_llm() -> tuple[bool, str]:
         reply = (resp.choices[0].message.content or "").strip()[:60]
         return True, f"{label}  [{elapsed:.1f}s]  回复：{reply!r}"
     except Exception as exc:
-        _msg = str(exc).lower()
-        if any(k in _msg for k in ("connection", "connect", "refused", "unreachable", "timeout")):
-            return False, f"{label}  无法连接（端口未开放 / 服务未启动）"
         return False, f"{label}  错误：{exc}"
 
 
