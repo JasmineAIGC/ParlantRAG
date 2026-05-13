@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, List, Optional
 
-from rag_module.retrieval.types import Chunk, RetrievalResult
+from parlant_rag.retrieval.types import Chunk, RetrievalResult
 
 
 class DenseRetriever:
@@ -81,7 +81,7 @@ class DenseRetriever:
         Args:
             documents: 文档列表，每条必须包含 ``id`` / ``content`` / ``source`` 字段。
         """
-        from rag_module.retrieval.embedding import OpenAILikeEmbedding
+        from model_client.api.embedding import OpenAILikeEmbedding
         embed_model = OpenAILikeEmbedding.from_env()
         return cls(documents=documents, embed_model=embed_model)
 

@@ -1,12 +1,11 @@
 """
-公共工具函数。
+model_client 内部共享工具函数。
 
 提供：
   - :func:`first_env` — 按优先级读取环境变量
   - :func:`make_openai_clients` — 创建 OpenAI 同步/异步客户端对
 
-``LLMClient`` 和 ``OpenAILikeEmbedding`` 均通过此模块连接 OpenAI 兼容 API，
-各自只需少量专用代码（model 选择、chat / embedding 端点调用）。
+``api.llm`` 和 ``api.embedding`` 均通过此模块获得 OpenAI 兼容 API 连接能力。
 """
 from __future__ import annotations
 

@@ -5,7 +5,7 @@ Parlant 工具层。
   - ``rag_search``          — 执行向量检索
   - ``evaluate_retrieval``  — LLM 综合评估检索质量
 
-这一层是 rag_module 与 Parlant 框架之间的唯一接口。
+这一层是 parlant_rag 与 Parlant 框架之间的唯一接口。
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 import parlant.sdk as p
 
-from rag_module.retrieval.types import Chunk, RetrievalResult
+from parlant_rag.retrieval.types import Chunk, RetrievalResult
 
 
 def make_rag_tools(

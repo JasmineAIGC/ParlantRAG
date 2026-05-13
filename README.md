@@ -19,50 +19,71 @@
 ## 目录结构
 
 ```
-rag_module/
-├── __init__.py              对外暴露的公共接口
-├── base.py                  共享数据类 + 抽象接口（检索/评估两包的唯一耦合点）
-├── tools.py                 Parlant 工具定义（rag_search / evaluate_retrieval）
-├── module.py                RAGModule 主类（注册入口）
+parlant_rag/                 主包——所有核心逻辑
+├── __init__.py              对外公共接口（快速导入入口）
 │
-├── retrieval/               ── 检索子包 ──────────────────────────────
+├── retrieval/               ── 检索模块 ──────────────────────────────
 │   ├── __init__.py
+│   ├── types.py             共享数据类（Chunk、RetrievalResult）
 │   ├── keyword.py           KeywordRetriever（无依赖，关键词 Jaccard 匹配）
 │   ├── dense.py             DenseRetriever（sentence-transformers + FAISS）
 │   └── flexrag.py           FlexRAGRetriever（加载 FlexRAG 构建的知识库）
 │
-└── evaluation/              ── 评估子包 ──────────────────────────────
+├── evaluation/              ── 评估模块 ──────────────────────────────
+│   ├── __init__.py
+│   └── evaluator.py         LLMEvaluator（多信号预计算 + LLM 综合评判）
+│
+└── tools/                   ── 工具类（Parlant 集成层） ───────────────
     ├── __init__.py
-    └── llm_evaluator.py     LLMEvaluator（多信号预计算 + LLM 综合评判）
+    ├── parlant_tools.py     Parlant 工具定义（rag_search / evaluate_retrieval）
+    └── module.py            RAGModule 主类（注册入口）
 
-examples/                    顶层示例
-├── basic_usage.py           最简 Parlant 集成（KeywordRetriever + LLMEvaluator）
-├── flexrag_usage.py         FlexRAG 知识库 + 完整 Parlant 集成
-└── standalone_test.py       独立测试（不需要启动 Parlant 服务）
+model_client/                模型调用基础层（LLM + Embedding 客户端）
+├── api/                     通过 OpenAI 兼容 API 调用远程模型
+│   ├── llm.py               LLMClient、LLMConfig
+│   └── embedding.py         OpenAILikeEmbedding
+└── local/                   本地模型（无需 API 服务）
+    └── embedding.py         SentenceTransformerEmbedding
+
+examples/                    独立运行示例（无需启动 Parlant 服务）
+├── 00_check_env.py          验证 .env 配置（LLM / Embedding API 连通性）
+├── 01_load_kb.py            验证 FAISS 知识库加载
+├── 02_retrieval.py          检索流程演示
+└── 03_retrieval_eval.py     检索 + LLM 评估完整流程
 ```
 
 ---
 
-## 评估器设计（`LLMEvaluator`）
+## 配置说明（.env）
 
-评估不使用纯规则，而是**先本地预计算量化信号，再由 LLM 综合判断**：
+所有 API 和路径配置统一来自项目根目录的 `.env` 文件。  
+复制模板并填写实际值：
 
+```bash
+cp .env.example .env
 ```
-步骤 1：本地预计算（无 LLM，极低开销）
-  ├── 向量相似度分布（max / avg / min）
-  ├── 问题关键词覆盖率 & 未覆盖词列表
-  └── 来源多样性（不同文件数量）
 
-步骤 2：构造富文本 Prompt
-  ├── 量化信号摘要（锚定数值）
-  └── 检索片段全文（定性判断）
+关键配置项：
 
-步骤 3：LLM 综合评判 → 返回结构化 JSON
-  ├── relevance / coverage / confidence（0~1）
-  ├── verdict（qualified / insufficient / no_coverage）
-  ├── conclusion（一句话结论）
-  └── action_hint（给 Agent 的建议）
+```ini
+# LLM 服务（用于 LLMEvaluator）
+QWEN3_API_KEY=sk-xxxx
+QWEN3_BASE_URL=http://10.x.x.x:18023/v1
+QWEN3_MODEL=Qwen2.5-7B-Instruct
+
+# Embedding 服务（用于 FlexRAGRetriever，须与构建知识库时一致）
+EMBEDDING_BASE_URL=http://10.x.x.x:18024/v1
+EMBEDDING_API_KEY=sk-xxxx
+EMBEDDING_MODEL=Qwen3-Embedding-8B
+
+# 知识库路径（FlexRAG 构建的 FAISS 索引目录）
+KNOWLEDGE_PERSIST_DIR=./knowledge_base/knowledge_persist_dir/hotpotqa
 ```
+
+> **本地 Embedding 模式**（无 API 服务时）：注释掉 `EMBEDDING_BASE_URL`，改为设置：
+> ```ini
+> EMBEDDING_MODEL_PATH=/path/to/models/BAAI/bge-large-zh-v1.5
+> ```
 
 ---
 
@@ -81,77 +102,86 @@ git clone https://github.com/Xavier-123/FlexRAG && cd FlexRAG
 python scripts/build_knowledge_base.py \
     --input-dir ./my_docs \
     --output-dir ./my_knowledge_base \
-    --embedding-base-url http://127.0.0.1:8018/v1 \
-    --embedding-model Qwen3-Embedding-0.6B
+    --embedding-base-url http://10.x.x.x:18024/v1 \
+    --embedding-model Qwen3-Embedding-8B
 ```
 
-### 3. 接入 Parlant Agent
+### 3. 验证环境配置
+
+```bash
+python examples/00_check_env.py
+```
+
+### 4. 独立运行检索 + 评估
+
+```bash
+# 仅检索
+python examples/02_retrieval.py
+
+# 检索 + LLM 评估
+python examples/03_retrieval_eval.py
+```
+
+### 5. 接入 Parlant Agent
 
 ```python
-from rag_module import RAGModule, LLMEvaluator
-from rag_module.retrieval import FlexRAGRetriever
+from parlant_rag import RAGModule, LLMEvaluator
+from parlant_rag.retrieval import FlexRAGRetriever
 
-retriever = FlexRAGRetriever(
-    persist_dir="./my_knowledge_base",
-    embedding_base_url="http://127.0.0.1:8018/v1",
-    embedding_api_key="sk-xxxx",
-    embedding_model="Qwen3-Embedding-0.6B",
-    top_k=5,
-    bm25_weight=0.3,   # 70% 向量 + 30% BM25 混合（可选）
-)
-# LLM 配置从 .env 文件自动加载（参考 .env.example）
+# 所有配置从根目录 .env 自动加载
+retriever = FlexRAGRetriever.from_env()
 evaluator = LLMEvaluator()
 
 rag = RAGModule(retriever=retriever, evaluator=evaluator)
 await rag.register(agent)
 ```
 
-### 4. 运行独立测试（不需要 Parlant 服务）
-
-```bash
-# 复制并填写 .env.example → .env
-cp .env.example .env
-PYTHONPATH=. python examples/standalone_test.py
-```
-
 ---
 
-## 检索器
+## 模块详解
+
+### 检索模块（`parlant_rag.retrieval`）
 
 | 类 | 文件 | 依赖 | 适用场景 |
 |---|---|---|---|
 | `KeywordRetriever` | `retrieval/keyword.py` | 无 | 快速原型、小规模文档 |
 | `DenseRetriever` | `retrieval/dense.py` | `sentence-transformers faiss-cpu` | 本地向量检索 |
-| `FlexRAGRetriever` | `retrieval/flexrag.py` | `llama-index faiss-cpu httpx` | 与 FlexRAG 配套 |
+| `FlexRAGRetriever` | `retrieval/flexrag.py` | `llama-index faiss-cpu` | 与 FlexRAG 知识库配套 |
 
-## 评估器
+### 评估模块（`parlant_rag.evaluation`）
 
 | 类 | 文件 | 依赖 | 特点 |
 |---|---|---|---|
-| `LLMEvaluator` | `evaluation/llm_evaluator.py` | `openai` | 多信号 + LLM 综合评判 |
+| `LLMEvaluator` | `evaluation/evaluator.py` | `litellm openai` | 多信号 + LLM 综合评判 |
 
----
+评估流程：
 
-## 自定义检索器
+```
+步骤 1：本地预计算（无 LLM，极低开销）
+  ├── 向量相似度分布（max / avg / min）
+  ├── 问题关键词覆盖率 & 未覆盖词列表
+  └── 来源多样性（不同文件数量）
 
-继承 `BaseRetriever` 并实现 `retrieve()` 方法：
+步骤 2：构造富文本 Prompt
+  ├── 量化信号摘要（锚定数值）
+  └── 检索片段全文（定性判断）
 
-```python
-from rag_module.base import BaseRetriever, RetrievalResult, Chunk
-
-class MyRetriever(BaseRetriever):
-    async def retrieve(self, query: str, top_k: int = 5) -> RetrievalResult:
-        chunks = [Chunk(chunk_id="1", content="...", source="file.md", score=0.9)]
-        return RetrievalResult(query=query, chunks=chunks, status="success")
-
-rag = RAGModule(retriever=MyRetriever(), evaluator=evaluator)
+步骤 3：LLM 综合评判 → 返回结构化 JSON
+  ├── relevance / coverage / confidence（0~1）
+  ├── verdict（qualified / insufficient / no_coverage）
+  ├── conclusion（一句话结论）
+  └── action_hint（给 Agent 的建议）
 ```
 
----
+### 工具类（`parlant_rag.tools`）
 
-## Guideline 流程
+需安装 `parlant`：
 
-注入 Agent 后，驱动如下执行流程：
+```bash
+pip install "parlant-rag[parlant]"
+```
+
+注入后 Agent 执行流程：
 
 ```
 用户提问
@@ -160,8 +190,37 @@ rag = RAGModule(retriever=MyRetriever(), evaluator=evaluator)
   │
   ▼ evaluate_retrieval（多信号 LLM 评估）
   │
-  ├── verdict=qualified   → 基于检索内容作答，注明来源
+  ├── verdict=qualified    → 基于检索内容作答，注明来源
   ├── verdict=insufficient → 告知相关性不足，建议换词重问
   └── verdict=no_coverage  → 告知超出知识库范围，不凭自身知识作答
 ```
 
+---
+
+## 数据类
+
+```python
+@dataclass
+class Chunk:
+    chunk_id: str
+    content:  str
+    source:   str
+    score:    float = 0.0
+    metadata: dict  = field(default_factory=dict)
+
+@dataclass
+class RetrievalResult:
+    query:  str
+    chunks: list[Chunk]
+    status: str          # "success" | "no_results"
+
+@dataclass
+class EvaluationResult:
+    verdict:    str      # "qualified" | "insufficient" | "no_coverage"
+    relevance:  float    # 0~1
+    coverage:   float    # 0~1
+    confidence: float    # 0~1
+    conclusion: str
+    action_hint: str
+    signals:    Optional[RetrievalSignals] = None
+```

@@ -14,8 +14,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from rag_module.retrieval.types import RetrievalResult
-from rag_module.llm_client import LLMClient, LLMConfig
+from parlant_rag.retrieval.types import RetrievalResult
+from model_client.api.llm import LLMClient, LLMConfig
 
 
 # ---------------------------------------------------------------------------

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import parlant.sdk as p
 
-from rag_module.retrieval import KeywordRetriever
-from rag_module.tools import make_rag_tools
+from parlant_rag.retrieval import KeywordRetriever
+from parlant_rag.tools.parlant_tools import make_rag_tools
 
 
 class RAGModule:
@@ -18,7 +18,7 @@ class RAGModule:
 
     Usage（最简）::
 
-        from rag_module import RAGModule, LLMEvaluator
+        from parlant_rag import RAGModule, LLMEvaluator
 
         rag = RAGModule(
             documents=my_docs,
@@ -28,8 +28,8 @@ class RAGModule:
 
     Usage（完整）::
 
-        from rag_module import RAGModule, LLMEvaluator
-        from rag_module.retrieval import FlexRAGRetriever
+        from parlant_rag import RAGModule, LLMEvaluator
+        from parlant_rag.retrieval import FlexRAGRetriever
 
         retriever = FlexRAGRetriever.from_env()  # 从 .env 自动加载
         evaluator = LLMEvaluator()               # 从 .env 自动加载
@@ -45,8 +45,8 @@ class RAGModule:
     ) -> None:
         """
         Args:
-            evaluator:  评估器实例（必填）。推荐使用 :class:`~rag_module.evaluator.LLMEvaluator`。
-            retriever:  检索器实例。不传时使用内置 :class:`~rag_module.retrieval.KeywordRetriever`。
+            evaluator:  评估器实例（必填）。推荐使用 :class:`~parlant_rag.evaluation.LLMEvaluator`。
+            retriever:  检索器实例。不传时使用内置 :class:`~parlant_rag.retrieval.KeywordRetriever`。
             documents:  当使用内置 KeywordRetriever 时，传入文档列表。
                         格式：``[{"id": "...", "content": "...", "source": "..."}]``
         """

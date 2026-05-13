@@ -1,15 +1,14 @@
 """
-LLM 客户端 — 基于 LiteLLM，接入本地 vLLM / OpenAI 兼容端点。
+LLM 客户端 — 通过 OpenAI 兼容 API 调用远程 LLM 服务（vLLM / OpenAI / DeepSeek 等）。
 
-设计参考 ``temp/llm/llm_client.py`` 的 ``AdkLLMClient``，去除 Google ADK 依赖，
-直接调用 ``litellm.acompletion()``。
+基于 LiteLLM，接入本地 vLLM / OpenAI 兼容端点。
 
 配置优先级：
   构造函数传入 LLMConfig  >  .env 文件  >  系统环境变量
 
 依赖::
 
-    pip install litellm python-dotenv
+    pip install litellm python-dotenv openai
 """
 from __future__ import annotations
 
@@ -18,7 +17,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
-from rag_module.utils import first_env
+from model_client._utils import first_env
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +81,7 @@ def _configure_litellm(model_name: str) -> None:
     - 禁用 success/failure 回调（抑制 async handler GC 噪音）
     - 注册本地模型零价格条目（消除 "not in cost map" DEBUG 日志）
     - 将 LiteLLM logger 提升至 WARNING 级别
+    - 关闭 SSL 证书校验（适配内网自签名证书 / HTTP vLLM 端点）
     """
     import logging as _logging
     _litellm_logger = _logging.getLogger("LiteLLM")
@@ -95,6 +95,11 @@ def _configure_litellm(model_name: str) -> None:
         litellm.failure_callback = []
         litellm.callbacks = []
         litellm.suppress_debug_info = True
+        # SSL 证书验证：内网 vLLM 端点常用自签名证书或纯 HTTP。
+        # 默认关闭验证以适配常见部署场景；生产环境可设 LLM_SSL_VERIFY=true 开启。
+        import os as _os
+        _ssl_verify_str = _os.environ.get("LLM_SSL_VERIFY", "false").lower()
+        litellm.ssl_verify = _ssl_verify_str not in ("false", "0", "no", "off")
 
         _zero_cost: dict = {
             "max_tokens": 32768,
@@ -216,10 +221,10 @@ class LLMConfig:
 
 class LLMClient:
     """
-    基于 LiteLLM 的轻量级异步 LLM 客户端。
+    基于 LiteLLM 的轻量级异步 LLM 客户端（API 模式）。
 
     每次 ``chat_async()`` 调用恰好发起一次 API 请求（无 Agent 框架开销）。
-    设计参考 ``temp/llm/llm_client.py`` 中的 ``AdkLLMClient``。
+    通过 OpenAI 兼容接口访问远程 LLM 服务（vLLM / OpenAI / DeepSeek 等）。
 
     依赖::
 
@@ -227,7 +232,7 @@ class LLMClient:
 
     Usage::
 
-        from rag_module.llm_client import LLMClient, LLMConfig
+        from model_client.api.llm import LLMClient, LLMConfig
 
         # 从 .env 自动加载
         client = LLMClient()
@@ -294,15 +299,30 @@ class LLMClient:
             else self._config.model
         )
 
-        response = await self._litellm.acompletion(
-            model=model_str,
-            messages=messages,
-            api_base=self._config.base_url,
-            api_key=self._config.api_key,
-            temperature=temp,
-            max_tokens=self._config.max_tokens,
-            **extra_kwargs,
-        )
+        try:
+            response = await self._litellm.acompletion(
+                model=model_str,
+                messages=messages,
+                api_base=self._config.base_url,
+                api_key=self._config.api_key,
+                temperature=temp,
+                max_tokens=self._config.max_tokens,
+                num_retries=0,  # 连接失败时快速报错，避免无效重试延迟
+                **extra_kwargs,
+            )
+        except Exception as exc:
+            _msg = str(exc).lower()
+            if any(k in _msg for k in ("connection", "connect", "refused", "unreachable", "timeout")):
+                url = self._config.base_url or "(未配置)"
+                raise RuntimeError(
+                    f"无法连接到 LLM 服务（{url}）。\n"
+                    "请确认：\n"
+                    "  1. vLLM / LLM 服务已启动并在该地址上正常监听\n"
+                    "  2. .env 中的 QWEN3_BASE_URL / LLM_BASE_URL 端口和地址正确\n"
+                    "  3. 网络可达性（防火墙 / 端口转发 / VPN）\n"
+                    f"原始错误：{exc}"
+                ) from exc
+            raise
 
         text: str = response.choices[0].message.content or ""
         # 剥除推理模型（Qwen3 / DeepSeek-R1）输出的思考块
