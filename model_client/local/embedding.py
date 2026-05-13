@@ -94,7 +94,7 @@ class SentenceTransformerEmbedding(_BaseEmbedding):
         if not model_path:
             raise ValueError(
                 "EMBEDDING_MODEL_PATH 未设置，无法使用本地 embedding 模式。\n"
-                "请在 .env 文件中设置 EMBEDDING_MODEL_PATH=/path/to/model"
+                "请通过 .env 文件或系统环境变量设置 EMBEDDING_MODEL_PATH=/path/to/model"
             )
         model_name = os.getenv("EMBEDDING_MODEL") or None
         return cls(model_path=model_path, model_name=model_name)
