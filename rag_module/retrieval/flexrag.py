@@ -178,6 +178,43 @@ class FlexRAGRetriever(BaseRetriever):
             bm25_weight=bm25_weight,
         )
 
+    @staticmethod
+    def get_index_dim(persist_dir: str) -> int:
+        """
+        读取 FAISS 索引的向量维度，**不加载任何 Embedding 模型**。
+
+        在配置 ``EMBEDDING_MODEL_PATH`` 之前调用此方法，可确认知识库需要的向量维度，
+        从而选用输出维度一致的 Embedding 模型。
+
+        Args:
+            persist_dir: FlexRAG 知识库根目录（包含 ``faiss_index.bin``）。
+
+        Returns:
+            FAISS 索引的向量维度（整数）。
+
+        Raises:
+            FileNotFoundError: 目录下找不到 ``faiss_index.bin``。
+            ImportError:       ``faiss`` 未安装。
+
+        Example::
+
+            dim = FlexRAGRetriever.get_index_dim("./knowledge_base/knowledge_persist_dir/hotpotqa")
+            print(f"知识库需要维度为 {dim} 的 Embedding 模型")
+        """
+        try:
+            import faiss as _faiss
+        except ImportError:
+            raise ImportError(
+                "读取 FAISS 索引维度需要安装 faiss：pip install faiss-cpu"
+            )
+        faiss_path = os.path.join(persist_dir, _FAISS_FILE)
+        if not os.path.exists(faiss_path):
+            raise FileNotFoundError(
+                f"未找到 FAISS 索引文件：{faiss_path}\n"
+                f"请确认 persist_dir 路径正确，且知识库已构建完成。"
+            )
+        return _faiss.read_index(faiss_path).d
+
     # ------------------------------------------------------------------
     # Public properties
     # ------------------------------------------------------------------
@@ -289,8 +326,8 @@ class FlexRAGRetriever(BaseRetriever):
                 f"  当前模型输出维度：{embed_dim}\n"
                 f"  当前模型名称：{self._embedding_model}\n"
                 f"  当前模型路径：{self._embedding_model_path}\n"
-                f"请确认 EMBEDDING_MODEL_PATH 所指向的模型与构建知识库时使用的模型完全一致，"
-                f"包括模型名称和版本（不同模型/量化版本的向量维度可能不同）。"
+                f"请换用输出维度为 {faiss_dim} 的 Embedding 模型（与构建知识库时完全一致），\n"
+                f"或在配置前先调用 FlexRAGRetriever.get_index_dim(persist_dir) 查询知识库所需维度。"
             )
 
         logger.info(
@@ -363,10 +400,12 @@ class FlexRAGRetriever(BaseRetriever):
             # FAISS 内部 `assert d == self.d` 失败：查询向量维度与索引不一致。
             # 正常情况下 _load_index() 的主动维度校验会提前捕获这个问题；
             # 这里作为安全兜底，转换为可读的 ValueError。
+            logger.exception("[FlexRAGRetriever] 向量检索失败（维度不匹配）  query=%r", query)
             raise ValueError(
                 f"FAISS 向量维度断言失败（assert d == self.d）。\n"
                 f"查询时的 Embedding 模型输出维度与知识库索引维度不一致。\n"
-                f"请确认 EMBEDDING_MODEL_PATH 所指向的模型与构建知识库时使用的模型完全一致。"
+                f"请确认 EMBEDDING_MODEL_PATH 所指向的模型与构建知识库时使用的模型完全一致。\n"
+                f"可通过 FlexRAGRetriever.get_index_dim(persist_dir) 查询知识库所需的向量维度。"
             ) from exc
         except Exception as exc:
             exc_str = str(exc)
