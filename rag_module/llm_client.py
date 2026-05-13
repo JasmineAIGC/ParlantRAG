@@ -125,7 +125,7 @@ def _configure_litellm(model_name: str) -> None:
             for key, val in model_registry.items():
                 litellm.model_cost.setdefault(key, val)
     except Exception as exc:
-        logger.debug(f"[LLMClient] litellm 配置失败（非致命）: {exc}")
+        logger.debug("[LLMClient] litellm 配置失败（非致命）: %s", exc, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
