@@ -12,12 +12,20 @@ class OpenAILikeEmbedding(BaseEmbedding):
     """Minimal OpenAI-compatible embedding wrapper for a vLLM embedding endpoint.
 
     Now properly inherits from LlamaIndex's BaseEmbedding to pass type validation.
+
+    Args:
+        normalize_embeddings: L2-normalize every returned vector (default ``True``).
+                              Normalized vectors make inner-product scores equal to
+                              cosine similarity, preventing high-norm documents from
+                              inflating their ranking.  Must be consistent between
+                              index build time and query time.
     """
 
     # Pydantic 字段定义
     base_url: str
     model_name: str  # LlamaIndex 规范中通常使用 model_name
     api_key: Optional[str] = None
+    normalize_embeddings: bool = True
 
     # 非序列化的内部私有变量，需要用 PrivateAttr 声明
     _client: Any = PrivateAttr()
@@ -29,6 +37,7 @@ class OpenAILikeEmbedding(BaseEmbedding):
             base_url: str,
             model_name: str,
             api_key: str | None = None,
+            normalize_embeddings: bool = True,
             embed_batch_size: int = 5,
             http_client: Any | None = None,
             async_http_client: Any | None = None,
@@ -39,6 +48,7 @@ class OpenAILikeEmbedding(BaseEmbedding):
             base_url=base_url,
             model_name=model_name,
             api_key=api_key,
+            normalize_embeddings=normalize_embeddings,
             **kwargs
         )
 
@@ -53,6 +63,20 @@ class OpenAILikeEmbedding(BaseEmbedding):
         self._client = http_client or httpx.Client(timeout=60.0)
         self._aclient = async_http_client or httpx.AsyncClient(timeout=60.0)
         self.embed_batch_size = embed_batch_size
+
+    # ------------------------------------------------------------------
+    # 内部辅助
+    # ------------------------------------------------------------------
+
+    def _maybe_normalize(self, embeddings: List[List[float]]) -> List[List[float]]:
+        """L2-normalize each vector when normalize_embeddings is True."""
+        if not self.normalize_embeddings:
+            return embeddings
+        import numpy as np
+        vecs = np.array(embeddings, dtype=np.float32)
+        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1.0, norms)
+        return (vecs / norms).tolist()
 
     # ------------------------------------------------------------------
     # 同步方法 (Synchronous Methods)
@@ -78,7 +102,8 @@ class OpenAILikeEmbedding(BaseEmbedding):
 
         # Sort by index to preserve order (OpenAI spec)
         data.sort(key=lambda item: item["index"])
-        return [item["embedding"] for item in data]
+        embeddings = [item["embedding"] for item in data]
+        return self._maybe_normalize(embeddings)
 
     # ------------------------------------------------------------------
     # 异步方法 (Asynchronous Methods)
@@ -105,7 +130,8 @@ class OpenAILikeEmbedding(BaseEmbedding):
         response.raise_for_status()
         data = response.json()["data"]
         data.sort(key=lambda item: item["index"])
-        return [item["embedding"] for item in data]
+        embeddings = [item["embedding"] for item in data]
+        return self._maybe_normalize(embeddings)
 
 
 class BaseFlexRetriever(ABC):

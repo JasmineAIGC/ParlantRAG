@@ -49,15 +49,21 @@ class OpenAILikeEmbedding(_BaseEmbedding):
     与知识库构建阶段使用完全相同的 Embedding 接口，保证向量维度一致。
 
     Args:
-        base_url:    Embedding 服务的 base URL（如 ``http://127.0.0.1:8018/v1``）。
-        model_name:  Embedding 模型名称（如 ``bge-large-zh-v1.5``）。
-        api_key:     API Key；本地部署时可设为任意非空字符串（默认 ``"EMPTY"``）。
-        access_key:  可选的 ``access-key`` 请求头（部分私有部署网关需要）。
+        base_url:             Embedding 服务的 base URL（如 ``http://127.0.0.1:8018/v1``）。
+        model_name:           Embedding 模型名称（如 ``bge-large-zh-v1.5``）。
+        api_key:              API Key；本地部署时可设为任意非空字符串（默认 ``"EMPTY"``）。
+        access_key:           可选的 ``access-key`` 请求头（部分私有部署网关需要）。
+        normalize_embeddings: 是否对返回向量做 L2 归一化（默认 ``True``）。
+                              归一化后向量为单位向量，与 ``IndexFlatIP`` 配合时
+                              内积等价于余弦相似度，排名不受向量模长干扰。
+                              **注意**：构建知识库与检索查询必须使用相同的设置；
+                              修改此参数后需重建知识库索引。
     """
     base_url: str
     model_name: str
     api_key: Optional[str] = None
     access_key: Optional[str] = None
+    normalize_embeddings: bool = True
     embed_batch_size: int = 5  # inherited from BaseEmbedding; declared here for Pydantic
 
     # 非序列化内部变量
@@ -70,6 +76,7 @@ class OpenAILikeEmbedding(_BaseEmbedding):
         model_name: str,
         api_key: Optional[str] = None,
         access_key: Optional[str] = None,
+        normalize_embeddings: bool = True,
         embed_batch_size: int = 5,
         **kwargs: Any,
     ) -> None:
@@ -83,10 +90,25 @@ class OpenAILikeEmbedding(_BaseEmbedding):
             model_name=model_name,
             api_key=api_key,
             access_key=access_key,
+            normalize_embeddings=normalize_embeddings,
             embed_batch_size=embed_batch_size,
             **kwargs,
         )
         self._client, self._aclient = make_openai_clients(base_url, api_key, access_key)
+
+    # ------------------------------------------------------------------
+    # 内部辅助
+    # ------------------------------------------------------------------
+
+    def _maybe_normalize(self, embeddings: List[List[float]]) -> List[List[float]]:
+        """若 normalize_embeddings=True，对每个向量做 L2 归一化（原地风格，返回新列表）。"""
+        if not self.normalize_embeddings:
+            return embeddings
+        import numpy as np
+        vecs = np.array(embeddings, dtype=np.float32)
+        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1.0, norms)
+        return (vecs / norms).tolist()
 
     # ------------------------------------------------------------------
     # 工厂方法
@@ -143,7 +165,8 @@ class OpenAILikeEmbedding(_BaseEmbedding):
             model=self.model_name,
             input=texts,
         )
-        return [item.embedding for item in response.data]
+        embeddings = [item.embedding for item in response.data]
+        return self._maybe_normalize(embeddings)
 
     # ------------------------------------------------------------------
     # 异步方法
@@ -160,7 +183,8 @@ class OpenAILikeEmbedding(_BaseEmbedding):
             model=self.model_name,
             input=texts,
         )
-        return [item.embedding for item in response.data]
+        embeddings = [item.embedding for item in response.data]
+        return self._maybe_normalize(embeddings)
 
 
 class SentenceTransformerEmbedding(_BaseEmbedding):

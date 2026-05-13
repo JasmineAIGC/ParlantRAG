@@ -401,8 +401,11 @@ class FlexRAGRetriever:
             )
 
         logger.info(
-            "[FlexRAGRetriever] Embedding 维度校验通过  embed_dim=%d  faiss_dim=%d",
+            "[FlexRAGRetriever] Embedding 维度校验通过  embed_dim=%d  faiss_dim=%d  "
+            "normalized=%s  faiss_metric=%s",
             embed_dim, faiss_dim,
+            getattr(self._embed_model, "normalize_embeddings", True),
+            "IP" if faiss_index.metric_type == 1 else "L2",
         )
 
         vector_store = FaissVectorStore(faiss_index=faiss_index)
