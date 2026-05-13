@@ -16,7 +16,7 @@
 
 前置条件：
     1. 复制并填写 .env.example → .env
-    2. pip install litellm python-dotenv openai
+    2. pip install python-dotenv openai
        （本地 Embedding 模式还需 sentence-transformers llama-index）
 """
 from __future__ import annotations
@@ -57,7 +57,7 @@ def _result(label: str, ok: bool, detail: str = "") -> None:
 
 
 # ---------------------------------------------------------------------------
-# 检测项 1：LLM API（litellm / openai 兼容）
+# 检测项 1：LLM API（openai 兼容 chat completions）
 # ---------------------------------------------------------------------------
 
 async def _check_llm() -> tuple[bool, str]:
@@ -81,41 +81,21 @@ async def _check_llm() -> tuple[bool, str]:
     label = f"LLM API  model={llm_model or '(未配置)'}  url={llm_url}"
 
     try:
-        import litellm  # type: ignore[import]
-
-        # 静默 litellm 日志噪音
-        import logging as _log
-        _log.getLogger("LiteLLM").setLevel(_log.ERROR)
-        litellm.suppress_debug_info = True
-        litellm.success_callback = []
-        litellm.failure_callback = []
-        litellm.callbacks = []
-
-        _ssl_verify = os.environ.get("LLM_SSL_VERIFY", "false").lower() not in (
-            "false", "0", "no", "off"
-        )
-        litellm.ssl_verify = _ssl_verify
-
-        model_str = f"openai/{llm_model}" if llm_model else "openai/dummy"
+        from openai import AsyncOpenAI  # type: ignore[import]
+        client = AsyncOpenAI(api_key=llm_key or "EMPTY", base_url=llm_url)
         t0 = time.monotonic()
-        try:
-            resp = await litellm.acompletion(
-                model=model_str,
-                messages=[{"role": "user", "content": "Hi"}],
-                api_base=llm_url,
-                api_key=llm_key or "EMPTY",
-                max_tokens=16,
-                num_retries=0,
-            )
-        except Exception as exc:
-            _msg = str(exc).lower()
-            if any(k in _msg for k in ("connection", "connect", "refused", "unreachable", "timeout")):
-                return False, f"{label}  无法连接（端口未开放 / 服务未启动）"
-            return False, f"{label}  错误：{exc}"
+        resp = await client.chat.completions.create(
+            model=llm_model or "default",
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=16,
+        )
         elapsed = time.monotonic() - t0
         reply = (resp.choices[0].message.content or "").strip()[:60]
         return True, f"{label}  [{elapsed:.1f}s]  回复：{reply!r}"
     except Exception as exc:
+        _msg = str(exc).lower()
+        if any(k in _msg for k in ("connection", "connect", "refused", "unreachable", "timeout")):
+            return False, f"{label}  无法连接（端口未开放 / 服务未启动）"
         return False, f"{label}  错误：{exc}"
 
 
