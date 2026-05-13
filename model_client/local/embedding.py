@@ -2,11 +2,11 @@
 本地 Embedding 模型封装 — 使用 sentence-transformers 在本地推理。
 
 适用于不依赖外部 Embedding API 服务、直接加载本地模型文件的场景。
-与 ``OpenAILikeEmbedding`` 接口完全一致，可无缝替换传入 ``FlexRAGRetriever``。
+与 ``OpenAILikeEmbedding`` 接口完全一致，可无缝传入新检索器。
 
 依赖::
 
-    pip install llama-index sentence-transformers
+    pip install sentence-transformers
 """
 from __future__ import annotations
 
@@ -14,20 +14,10 @@ import asyncio
 import os
 from typing import Any, List, Optional
 
-# guard：llama-index + pydantic
-try:
-    from pydantic import PrivateAttr
-    from llama_index.core.embeddings import BaseEmbedding as _BaseEmbedding
-    _LLAMA_AVAILABLE = True
-except ImportError:
-    _LLAMA_AVAILABLE = False
-    _BaseEmbedding = object  # type: ignore[assignment,misc]
-    PrivateAttr = lambda **kw: None  # type: ignore[assignment]  # noqa: E731
 
-
-class SentenceTransformerEmbedding(_BaseEmbedding):
+class SentenceTransformerEmbedding:
     """
-    LlamaIndex 兼容的本地 Embedding 模型封装，使用 sentence-transformers 库在本地推理。
+    本地 Embedding 模型封装，使用 sentence-transformers 库在本地推理。
 
     Args:
         model_path:  本地模型目录路径（传给 ``SentenceTransformer()``），
@@ -52,8 +42,6 @@ class SentenceTransformerEmbedding(_BaseEmbedding):
     model_name: str = "local"
     embed_batch_size: int = 32
 
-    _model: Any = PrivateAttr()
-
     def __init__(
         self,
         model_path: str,
@@ -61,19 +49,10 @@ class SentenceTransformerEmbedding(_BaseEmbedding):
         embed_batch_size: int = 32,
         **kwargs: Any,
     ) -> None:
-        # 先检查依赖，避免因 _BaseEmbedding=object 而产生误导性的 TypeError
-        if not _LLAMA_AVAILABLE:
-            raise ImportError(
-                "SentenceTransformerEmbedding 需要安装 llama-index：\n"
-                "pip install llama-index sentence-transformers"
-            )
         _name = model_name or os.path.basename(model_path.rstrip("/\\")) or "local"
-        super().__init__(
-            model_path=model_path,
-            model_name=_name,
-            embed_batch_size=embed_batch_size,
-            **kwargs,
-        )
+        self.model_path = model_path
+        self.model_name = _name
+        self.embed_batch_size = embed_batch_size
         try:
             from sentence_transformers import SentenceTransformer as _ST
         except ImportError:

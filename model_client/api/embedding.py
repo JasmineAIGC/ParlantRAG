@@ -5,14 +5,12 @@ OpenAI 兼容 Embedding 客户端 — 通过 API 调用远程 Embedding 服务�
 ``/v1/embeddings`` 端点，同时支持同步和异步两种调用方式，以及私有部署网关的
 ``access-key`` 请求头。
 
-继承自 LlamaIndex ``BaseEmbedding``，与知识库构建阶段使用完全相同的 Embedding 接口，
-保证向量维度一致。
-
-实现参考 FlexRAG ``flexrag/components/retrieval/base.py`` 中的同名类。
+不再继承 LlamaIndex ``BaseEmbedding``，避免将 FlexRAG / llama-index 作为硬依赖。
+保留同步 / 异步 ``_get_*`` 与 ``_aget_*`` 方法，兼容现有调用代码。
 
 依赖::
 
-    pip install llama-index openai
+    pip install openai
 """
 from __future__ import annotations
 
@@ -20,20 +18,10 @@ from typing import Any, List, Optional
 
 from model_client._utils import first_env, make_openai_clients
 
-# guard：llama-index + pydantic
-try:
-    from pydantic import PrivateAttr
-    from llama_index.core.embeddings import BaseEmbedding as _BaseEmbedding
-    _LLAMA_AVAILABLE = True
-except ImportError:
-    _LLAMA_AVAILABLE = False
-    _BaseEmbedding = object  # type: ignore[assignment,misc]
-    PrivateAttr = lambda **kw: None  # type: ignore[assignment]  # noqa: E731
 
-
-class OpenAILikeEmbedding(_BaseEmbedding):
+class OpenAILikeEmbedding:
     """
-    最小化 OpenAI 兼容 Embedding 客户端，继承自 LlamaIndex ``BaseEmbedding``。
+    最小化 OpenAI 兼容 Embedding 客户端。
 
     使用 ``openai.OpenAI`` / ``openai.AsyncOpenAI`` SDK 调用 vLLM / OpenAI 兼容的
     ``/v1/embeddings`` 端点，支持同步和异步调用，以及私有部署网关的 ``access-key`` 请求头。
@@ -54,11 +42,7 @@ class OpenAILikeEmbedding(_BaseEmbedding):
     api_key: Optional[str] = None
     access_key: Optional[str] = None
     normalize_embeddings: bool = True
-    embed_batch_size: int = 5  # inherited from BaseEmbedding; declared here for Pydantic
-
-    # 非序列化内部变量
-    _client: Any = PrivateAttr()
-    _aclient: Any = PrivateAttr()
+    embed_batch_size: int = 5
 
     def __init__(
         self,
@@ -70,20 +54,12 @@ class OpenAILikeEmbedding(_BaseEmbedding):
         embed_batch_size: int = 5,
         **kwargs: Any,
     ) -> None:
-        if not _LLAMA_AVAILABLE:
-            raise ImportError(
-                "OpenAILikeEmbedding 需要安装 llama-index：\n"
-                "pip install llama-index"
-            )
-        super().__init__(
-            base_url=base_url,
-            model_name=model_name,
-            api_key=api_key,
-            access_key=access_key,
-            normalize_embeddings=normalize_embeddings,
-            embed_batch_size=embed_batch_size,
-            **kwargs,
-        )
+        self.base_url = base_url
+        self.model_name = model_name
+        self.api_key = api_key
+        self.access_key = access_key
+        self.normalize_embeddings = normalize_embeddings
+        self.embed_batch_size = embed_batch_size
         self._client, self._aclient = make_openai_clients(base_url, api_key, access_key)
 
     # ------------------------------------------------------------------

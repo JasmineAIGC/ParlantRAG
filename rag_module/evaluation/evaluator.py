@@ -10,8 +10,6 @@ LLMEvaluator — 多信号融合 + LLM 综合评估器。
 LLM 调用方式与 ``model_client.api.llm.LLMClient`` 保持一致（不依赖 FlexRAG）。
 通过 :meth:`LLMEvaluator.as_tool` 可将评估能力直接暴露为 Parlant SDK 工具。
 """
-from __future__ import annotations
-
 import json
 import re
 from dataclasses import dataclass

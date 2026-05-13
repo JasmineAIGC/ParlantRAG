@@ -17,7 +17,7 @@
 前置条件：
     1. 复制并填写 .env.example → .env
     2. pip install python-dotenv openai
-       （本地 Embedding 模式还需 sentence-transformers llama-index）
+       （本地 Embedding 模式还需 sentence-transformers）
 """
 from __future__ import annotations
 

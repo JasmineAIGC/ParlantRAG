@@ -1,25 +1,11 @@
 """
-03_retrieval_eval.py — 检索 + LLM 评估完整流程
+03_retrieval_eval.py — Parlant SDK 原生检索 + LLM 评估完整流程
 
-加载 FlexRAG 构建的 FAISS 知识库，执行向量检索，
-再由 LLMEvaluator 对检索结果做多信号综合评估（相关性、覆盖度、置信度）。
+使用 ``rag_module.retrieval.ParlantRetriever`` 检索，再由 ``LLMEvaluator`` 调用
+既有 ``model_client.api.llm.LLMClient`` 完成综合评估；全流程不依赖 FlexRAG。
 
-运行方式（从项目根目录 或 examples/ 目录均可）：
+运行方式：
     python examples/03_retrieval_eval.py
-    # 或
-    cd examples && python 03_retrieval_eval.py
-
-前置条件：
-    1. 用 FlexRAG scripts/build_knowledge_base.py 构建好知识库
-    2. 复制并填写 .env.example → .env，配置以下变量（参考 temp/llm/.env）：
-         KNOWLEDGE_PERSIST_DIR=./knowledge_base/knowledge_persist_dir/hotpotqa
-         EMBEDDING_BASE_URL=http://10.x.x.x:8018/v1
-         EMBEDDING_MODEL=bge-large-zh-v1.5
-         QWEN3_API_KEY=sk-xxxx
-         QWEN3_BASE_URL=http://10.x.x.x:18023/v1
-         QWEN3_MODEL=Qwen2.5-7B-Instruct
-    3. 启动 Embedding 服务和 LLM 服务
-    4. pip install litellm python-dotenv llama-index llama-index-vector-stores-faiss faiss-cpu httpx
 """
 from __future__ import annotations
 
@@ -28,10 +14,8 @@ import logging
 import os
 import sys
 
-# 确保从任意目录运行时都能找到 parlant_rag（无需设置 PYTHONPATH）
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# 配置日志：将 INFO 及以上级别输出到控制台，包含完整异常 traceback。
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
@@ -42,23 +26,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from parlant_rag.retrieval import FlexRAGRetriever  # noqa: E402
-from parlant_rag.evaluation import LLMEvaluator      # noqa: E402
+from examples import _loader  # noqa: E402
+from rag_module.evaluation import LLMEvaluator  # noqa: E402
+from rag_module.retrieval import ParlantRetriever  # noqa: E402
 
-# 修改为你的实际查询词
 QUERY = "what is one of the stars of  The Newcomers known for？"
 TOP_K = 5
 
 
 async def main() -> None:
-    # ── 1. 加载知识库 ──────────────────────────────────────────────────────
-    print("⏳ 正在加载知识库...")
-    retriever = FlexRAGRetriever.from_env()
-    print("✅ 知识库加载完成\n")
+    documents = _loader.load_hotpotqa_documents(max_examples=40)
+    retriever = ParlantRetriever.from_keyword(documents)
 
-    # ── 2. 检索 ────────────────────────────────────────────────────────────
     print(f"{'='*60}")
     print(f"🔍 检索查询：{QUERY}")
+    print(f"📚 文档片段数：{len(documents)}")
     print(f"{'='*60}")
 
     retrieval = await retriever.retrieve(query=QUERY, top_k=TOP_K)
@@ -75,12 +57,10 @@ async def main() -> None:
         print(f"  [{i}] 得分：{chunk.score:.4f}  来源：{chunk.source}")
         print(f"       {preview}\n")
 
-    # ── 3. LLM 评估 ────────────────────────────────────────────────────────
     print(f"{'='*60}")
-    print("📊 LLM 评估中（参考 temp/llm/.env 的 QWEN3_* 配置）...")
+    print("📊 LLM 评估中（使用 .env 的 QWEN3_* / LLM_* 配置）...")
     print(f"{'='*60}\n")
 
-    # LLMEvaluator 从 .env 自动加载 LLM 配置（QWEN3_* 优先，参考 temp/llm/.env）
     evaluator = LLMEvaluator()
     result = await evaluator.evaluate(question=QUERY, retrieval=retrieval)
 
@@ -93,8 +73,8 @@ async def main() -> None:
 
     if result.signals:
         s = result.signals
-        print(f"\n  量化信号：")
-        print(f"    向量得分  max={s.max_score:.4f}  avg={s.avg_score:.4f}  min={s.min_score:.4f}")
+        print("\n  量化信号：")
+        print(f"    向量/检索得分  max={s.max_score:.4f}  avg={s.avg_score:.4f}  min={s.min_score:.4f}")
         print(f"    关键词覆盖率：{s.keyword_coverage:.0%}")
         if s.missing_keywords:
             print(f"    未覆盖词：{', '.join(s.missing_keywords)}")

@@ -1,69 +1,60 @@
 # ParlantRAG
 
-一个轻量级 RAG 模块，无缝接入 [Parlant](https://github.com/emcie-co/parlant) Agent 框架。  
-知识库由 [FlexRAG](https://github.com/Xavier-123/FlexRAG) 的 `scripts/build_knowledge_base.py` 构建。
+一个轻量级 RAG 模块，已从 FlexRAG 迁移为基于 [Parlant](https://github.com/emcie-co/parlant) 官方 SDK 的实现。新代码主入口为 `rag_module`；旧的 `parlant_rag` 路径保留为兼容转发层。
 
 ---
 
-## 核心功能
+## 核心变化
 
-| 功能 | 说明 |
+| 目标 | 实现 |
 |---|---|
-| **检索（Retrieve）** | 从向量知识库召回与用户问题最相关的文档片段 |
-| **评估（Evaluate）** | 预计算多维量化信号，结合 LLM 对检索结果做综合评判 |
-| **零侵入注册** | 通过 `RAGModule.register(agent)` 一行注入任意 Parlant Agent |
-| **可插拔组件** | 检索器（Retriever）和评估器（Evaluator）均可自由替换 |
+| 创建新检索器 | `rag_module.retrieval.ParlantRetriever`，可包装关键词 / 向量检索器，并可导出 Parlant `@p.tool` 工具 |
+| 更新评估器 | `rag_module.evaluation.LLMEvaluator` 保持既有 `model_client.api.llm.LLMClient` 调用方式，并提供 Parlant SDK 工具接口 |
+| 新建模块路径 | 推荐使用 `rag_module`；`parlant_rag` 仅做向后兼容 |
+| 简化依赖 | 移除 FlexRAG / llama-index 硬依赖；Embedding API 与本地模型调用方式保持不变 |
 
 ---
 
 ## 目录结构
 
+```text
+rag_module/                  新主包——Parlant SDK 原生 RAG 实现
+├── __init__.py              对外公共接口
+├── retrieval/
+│   ├── types.py             Chunk、RetrievalResult
+│   ├── keyword.py           KeywordRetriever（无外部检索依赖）
+│   ├── dense.py             DenseRetriever（FAISS + 既有 embedding 客户端）
+│   └── parlant.py           ParlantRetriever（检索器封装 + Parlant tool）
+├── evaluation/
+│   └── evaluator.py         LLMEvaluator（多信号 + 既有 LLMClient）
+└── tools/
+    ├── parlant_tools.py     make_rag_tools
+    └── module.py            RAGModule 注册入口
+
+parlant_rag/                 旧导入路径兼容层（转发到 rag_module）
+model_client/                既有模型调用基础层（LLM + Embedding 客户端）
+examples/                    独立运行示例
 ```
-parlant_rag/                 主包——所有核心逻辑
-├── __init__.py              对外公共接口（快速导入入口）
-│
-├── retrieval/               ── 检索模块 ──────────────────────────────
-│   ├── __init__.py
-│   ├── types.py             共享数据类（Chunk、RetrievalResult）
-│   ├── keyword.py           KeywordRetriever（无依赖，关键词 Jaccard 匹配）
-│   ├── dense.py             DenseRetriever（sentence-transformers + FAISS）
-│   └── flexrag.py           FlexRAGRetriever（加载 FlexRAG 构建的知识库）
-│
-├── evaluation/              ── 评估模块 ──────────────────────────────
-│   ├── __init__.py
-│   └── evaluator.py         LLMEvaluator（多信号预计算 + LLM 综合评判）
-│
-└── tools/                   ── 工具类（Parlant 集成层） ───────────────
-    ├── __init__.py
-    ├── parlant_tools.py     Parlant 工具定义（rag_search / evaluate_retrieval）
-    └── module.py            RAGModule 主类（注册入口）
 
-model_client/                模型调用基础层（LLM + Embedding 客户端）
-├── api/                     通过 OpenAI 兼容 API 调用远程模型
-│   ├── llm.py               LLMClient、LLMConfig
-│   └── embedding.py         OpenAILikeEmbedding
-└── local/                   本地模型（无需 API 服务）
-    └── embedding.py         SentenceTransformerEmbedding
+---
 
-examples/                    独立运行示例（无需启动 Parlant 服务）
-├── 00_check_env.py          验证 .env 配置（LLM / Embedding API 连通性）
-├── 01_load_kb.py            验证 FAISS 知识库加载
-├── 02_retrieval.py          检索流程演示
-└── 03_retrieval_eval.py     检索 + LLM 评估完整流程
+## 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+可选：如果使用本地 sentence-transformers embedding：
+
+```bash
+pip install sentence-transformers
 ```
 
 ---
 
 ## 配置说明（.env）
 
-所有 API 和路径配置统一来自项目根目录的 `.env` 文件。  
-复制模板并填写实际值：
-
-```bash
-cp .env.example .env
-```
-
-关键配置项：
+LLM 与 Embedding API 调用保持原有方式，仍由 `model_client` 读取环境变量：
 
 ```ini
 # LLM 服务（用于 LLMEvaluator）
@@ -71,129 +62,73 @@ QWEN3_API_KEY=sk-xxxx
 QWEN3_BASE_URL=http://10.x.x.x:18023/v1
 QWEN3_MODEL=Qwen2.5-7B-Instruct
 
-# Embedding 服务（用于 FlexRAGRetriever，须与构建知识库时一致）
+# Embedding 服务（用于 DenseRetriever.from_env / ParlantRetriever.from_dense_env）
 EMBEDDING_BASE_URL=http://10.x.x.x:18024/v1
 EMBEDDING_API_KEY=sk-xxxx
 EMBEDDING_MODEL=Qwen3-Embedding-8B
 
-# 知识库路径（FlexRAG 构建的 FAISS 索引目录）
-KNOWLEDGE_PERSIST_DIR=./knowledge_base/knowledge_persist_dir/hotpotqa
+# 本地 Embedding 模式（可选）
+EMBEDDING_MODEL_PATH=/path/to/models/BAAI/bge-large-zh-v1.5
 ```
-
-> **本地 Embedding 模式**（无 API 服务时）：注释掉 `EMBEDDING_BASE_URL`，改为设置：
-> ```ini
-> EMBEDDING_MODEL_PATH=/path/to/models/BAAI/bge-large-zh-v1.5
-> ```
 
 ---
 
 ## 快速开始
 
-### 1. 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. 构建知识库（使用 FlexRAG）
-
-```bash
-git clone https://github.com/Xavier-123/FlexRAG && cd FlexRAG
-python scripts/build_knowledge_base.py \
-    --input-dir ./my_docs \
-    --output-dir ./my_knowledge_base \
-    --embedding-base-url http://10.x.x.x:18024/v1 \
-    --embedding-model Qwen3-Embedding-8B
-```
-
-### 3. 验证环境配置
-
-```bash
-python examples/00_check_env.py
-```
-
-### 4. 独立运行检索 + 评估
-
-```bash
-# 仅检索
-python examples/02_retrieval.py
-
-# 检索 + LLM 评估
-python examples/03_retrieval_eval.py
-```
-
-### 5. 接入 Parlant Agent
+### 1. 关键词检索（无向量依赖）
 
 ```python
-from parlant_rag import RAGModule, LLMEvaluator
-from parlant_rag.retrieval import FlexRAGRetriever
+from rag_module.retrieval import ParlantRetriever
 
-# 所有配置从根目录 .env 自动加载
-retriever = FlexRAGRetriever.from_env()
-evaluator = LLMEvaluator()
+retriever = ParlantRetriever.from_keyword([
+    {"id": "doc-1", "content": "Parlant uses tools and guidelines.", "source": "demo.md"},
+])
+result = await retriever.retrieve("Parlant tools", top_k=5)
+```
 
-rag = RAGModule(retriever=retriever, evaluator=evaluator)
+### 2. 向量检索（保持现有 Embedding API 调用）
+
+```python
+from rag_module.retrieval import ParlantRetriever
+
+retriever = ParlantRetriever.from_dense_env(documents)
+await retriever.build_index()
+result = await retriever.retrieve("查询词", top_k=5)
+```
+
+### 3. 检索 + LLM 评估
+
+```python
+from rag_module.evaluation import LLMEvaluator
+
+retrieval = await retriever.retrieve("查询词", top_k=5)
+evaluation = await LLMEvaluator().evaluate("查询词", retrieval)
+```
+
+### 4. 接入 Parlant Agent
+
+```python
+from rag_module import LLMEvaluator, RAGModule
+from rag_module.retrieval import ParlantRetriever
+
+retriever = ParlantRetriever.from_keyword(documents)
+rag = RAGModule(retriever=retriever, evaluator=LLMEvaluator())
 await rag.register(agent)
 ```
 
+`ParlantRetriever.as_tool()` 和 `LLMEvaluator.as_tool()` 也可单独生成 Parlant SDK `@p.tool` 工具。
+
 ---
 
-## 模块详解
-
-### 检索模块（`parlant_rag.retrieval`）
-
-| 类 | 文件 | 依赖 | 适用场景 |
-|---|---|---|---|
-| `KeywordRetriever` | `retrieval/keyword.py` | 无 | 快速原型、小规模文档 |
-| `DenseRetriever` | `retrieval/dense.py` | `sentence-transformers faiss-cpu` | 本地向量检索 |
-| `FlexRAGRetriever` | `retrieval/flexrag.py` | `llama-index faiss-cpu` | 与 FlexRAG 知识库配套 |
-
-### 评估模块（`parlant_rag.evaluation`）
-
-| 类 | 文件 | 依赖 | 特点 |
-|---|---|---|---|
-| `LLMEvaluator` | `evaluation/evaluator.py` | `litellm openai` | 多信号 + LLM 综合评判 |
-
-评估流程：
-
-```
-步骤 1：本地预计算（无 LLM，极低开销）
-  ├── 向量相似度分布（max / avg / min）
-  ├── 问题关键词覆盖率 & 未覆盖词列表
-  └── 来源多样性（不同文件数量）
-
-步骤 2：构造富文本 Prompt
-  ├── 量化信号摘要（锚定数值）
-  └── 检索片段全文（定性判断）
-
-步骤 3：LLM 综合评判 → 返回结构化 JSON
-  ├── relevance / coverage / confidence（0~1）
-  ├── verdict（qualified / insufficient / no_coverage）
-  ├── conclusion（一句话结论）
-  └── action_hint（给 Agent 的建议）
-```
-
-### 工具类（`parlant_rag.tools`）
-
-需安装 `parlant`：
+## 运行示例
 
 ```bash
-pip install "parlant-rag[parlant]"
+python examples/00_check_env.py
+python examples/02_retrieval.py
+python examples/03_retrieval_eval.py
 ```
 
-注入后 Agent 执行流程：
-
-```
-用户提问
-  │
-  ▼ rag_search（向量检索）
-  │
-  ▼ evaluate_retrieval（多信号 LLM 评估）
-  │
-  ├── verdict=qualified    → 基于检索内容作答，注明来源
-  ├── verdict=insufficient → 告知相关性不足，建议换词重问
-  └── verdict=no_coverage  → 告知超出知识库范围，不凭自身知识作答
-```
+`examples/03_retrieval_eval.py` 会实际调用 LLM API，需要 `.env` 中的 LLM 配置可用。
 
 ---
 
@@ -203,24 +138,14 @@ pip install "parlant-rag[parlant]"
 @dataclass
 class Chunk:
     chunk_id: str
-    content:  str
-    source:   str
-    score:    float = 0.0
-    metadata: dict  = field(default_factory=dict)
+    content: str
+    source: str
+    score: float = 0.0
+    metadata: dict = field(default_factory=dict)
 
 @dataclass
 class RetrievalResult:
-    query:  str
+    query: str
     chunks: list[Chunk]
-    status: str          # "success" | "no_results"
-
-@dataclass
-class EvaluationResult:
-    verdict:    str      # "qualified" | "insufficient" | "no_coverage"
-    relevance:  float    # 0~1
-    coverage:   float    # 0~1
-    confidence: float    # 0~1
-    conclusion: str
-    action_hint: str
-    signals:    Optional[RetrievalSignals] = None
+    status: str  # "success" | "no_results"
 ```

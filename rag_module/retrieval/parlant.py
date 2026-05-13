@@ -21,8 +21,6 @@ ParlantRetriever — 基于 Parlant SDK 的检索器。
     pip install faiss-cpu        # DenseRetriever 模式所需
     pip install sentence-transformers  # 本地 Embedding 模式所需
 """
-from __future__ import annotations
-
 from typing import Annotated, Any
 
 from rag_module.retrieval.types import Chunk, RetrievalResult

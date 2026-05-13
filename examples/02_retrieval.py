@@ -1,67 +1,61 @@
 """
-02_retrieval.py — 测试检索能力
+02_retrieval.py — Parlant SDK 原生检索流程演示
 
-加载 FlexRAG 构建的 FAISS 知识库，执行查询检索，打印命中片段。
-不调用 LLM，仅验证向量检索流程。
+从 HotpotQA 示例 JSON 构建文档片段，使用新的 ``rag_module`` 路径和
+``ParlantRetriever`` 执行检索，不再加载 FlexRAG / llama-index 持久化索引。
 
-运行方式（从项目根目录 或 examples/ 目录均可）：
+运行方式：
     python examples/02_retrieval.py
-    # 或
-    cd examples && python 02_retrieval.py
-
-前置条件：
-    1. 用 FlexRAG scripts/build_knowledge_base.py 构建好知识库
-    2. 复制并填写 .env.example → .env，至少配置以下变量：
-         KNOWLEDGE_PERSIST_DIR=./knowledge_base/knowledge_persist_dir/hotpotqa
-         EMBEDDING_MODEL_PATH=/path/to/models/BAAI/bge-large-zh-v1.5
-         EMBEDDING_MODEL=bge-large-zh-v1.5
-    3. pip install python-dotenv llama-index llama-index-vector-stores-faiss faiss-cpu sentence-transformers
 """
 from __future__ import annotations
 
 import asyncio
-import logging
+import json
 import os
 import sys
+from pathlib import Path
 
-# 确保从任意目录运行时都能找到 parlant_rag（无需设置 PYTHONPATH）
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# 配置日志：将 INFO 及以上级别输出到控制台，包含完整异常 traceback。
-# 必须在 import parlant_rag 之前完成，以便 parlant_rag 内部的 logger 正确初始化。
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from parlant_rag.retrieval import FlexRAGRetriever  # noqa: E402
+from rag_module.retrieval import ParlantRetriever  # noqa: E402
 
-# 修改为你的实际查询词
 QUERY = "what is one of the stars of  The Newcomers known for？"
 TOP_K = 5
+DATA_FILE = Path("knowledge_base/hotpotqa.json")
+MAX_EXAMPLES = 40
+
+
+def load_documents(path: Path = DATA_FILE, max_examples: int = MAX_EXAMPLES) -> list[dict]:
+    """将 HotpotQA 示例数据转换为检索器使用的 ``id/content/source`` 文档列表。"""
+    rows = json.loads(path.read_text(encoding="utf-8"))[:max_examples]
+    docs: list[dict] = []
+    for row in rows:
+        row_id = row.get("_id", "item")
+        for title, sentences in row.get("context", []):
+            content = " ".join(sentences).strip()
+            if content:
+                docs.append({"id": f"{row_id}:{title}", "content": content, "source": title})
+    return docs
 
 
 async def main() -> None:
-    # 加载知识库（所有配置从 .env 读取）
-    print("⏳ 正在加载知识库...")
-    retriever = FlexRAGRetriever.from_env()
-    print("✅ 知识库加载完成\n")
+    documents = load_documents()
+    # 默认使用无外部依赖的关键词检索；如需向量检索，可替换为 from_dense_env/documents。
+    retriever = ParlantRetriever.from_keyword(documents)
 
-    # 执行检索
     print(f"{'='*60}")
     print(f"🔍 检索查询：{QUERY}")
+    print(f"📚 文档片段数：{len(documents)}")
     print(f"{'='*60}")
 
     result = await retriever.retrieve(query=QUERY, top_k=TOP_K)
 
     if not result.chunks:
         print("\n⚠️  未检索到任何相关片段（retrieval_status=no_results）。")
-        print("   请检查查询词与知识库内容是否匹配，或调整 top_k 参数。")
         return
 
     print(f"\n📄 命中 {len(result.chunks)} 个片段（共请求 top_k={TOP_K}）：\n")
@@ -69,7 +63,7 @@ async def main() -> None:
         preview = chunk.content[:120].replace("\n", " ")
         if len(chunk.content) > 120:
             preview += "..."
-        print(f"  [{i}] 相似度得分：{chunk.score:.4f}  来源：{chunk.source}")
+        print(f"  [{i}] 得分：{chunk.score:.4f}  来源：{chunk.source}")
         print(f"       {preview}\n")
 
 

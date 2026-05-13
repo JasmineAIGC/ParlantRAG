@@ -8,7 +8,7 @@ model_client/local/example.py — 本地模型调用示例
     2. 在 .env 中配置（或直接修改下方 MODEL_PATH）：
          EMBEDDING_MODEL_PATH=/path/to/models/BAAI/bge-large-zh-v1.5
          EMBEDDING_MODEL=bge-large-zh-v1.5（可选，用于显示）
-    3. pip install sentence-transformers llama-index python-dotenv
+    3. pip install sentence-transformers python-dotenv
 
 运行方式（从项目根目录）：
     python model_client/local/example.py

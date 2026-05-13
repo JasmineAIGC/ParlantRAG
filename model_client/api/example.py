@@ -11,7 +11,7 @@ model_client/api/example.py — API 模式调用示例
          EMBEDDING_BASE_URL=http://10.x.x.x:8018/v1
          EMBEDDING_MODEL=bge-large-zh-v1.5
     2. 启动 vLLM LLM 服务和 Embedding 服务
-    3. pip install litellm openai python-dotenv llama-index
+    3. pip install litellm openai python-dotenv
 
 运行方式（从项目根目录）：
     python model_client/api/example.py

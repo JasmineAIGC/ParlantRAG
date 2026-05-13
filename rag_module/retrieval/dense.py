@@ -76,8 +76,7 @@ class DenseRetriever:
         """
         从环境变量创建使用 ``OpenAILikeEmbedding`` API 模式的检索器。
 
-        读取的环境变量与 ``FlexRAGRetriever.from_env()`` 完全一致（``EMBEDDING_*``
-        优先，其次 ``QWEN3_*``，最后 ``LLM_*``）。
+        读取 ``EMBEDDING_*`` 环境变量，兼容既有 ``QWEN3_*`` / ``LLM_*`` 兜底配置。
 
         Args:
             documents: 文档列表，每条必须包含 ``id`` / ``content`` / ``source`` 字段。
