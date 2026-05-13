@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from rag_module.utils import first_env  # noqa: E402
+from model_client._utils import first_env  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # 辅助
