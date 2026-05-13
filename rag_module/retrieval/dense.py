@@ -81,7 +81,7 @@ class DenseRetriever:
         Args:
             documents: 文档列表，每条必须包含 ``id`` / ``content`` / ``source`` 字段。
         """
-        from rag_module.retrieval.embedding import OpenAILikeEmbedding
+        from model_client.api.embedding import OpenAILikeEmbedding
         embed_model = OpenAILikeEmbedding.from_env()
         return cls(documents=documents, embed_model=embed_model)
 

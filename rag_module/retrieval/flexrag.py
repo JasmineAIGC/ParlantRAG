@@ -41,9 +41,10 @@ import logging
 import os
 from typing import Any, Optional
 
-from rag_module.utils import first_env
+from model_client._utils import first_env
 from rag_module.retrieval.types import Chunk, RetrievalResult
-from rag_module.retrieval.embedding import OpenAILikeEmbedding, SentenceTransformerEmbedding
+from model_client.api.embedding import OpenAILikeEmbedding
+from model_client.local.embedding import SentenceTransformerEmbedding
 
 logger = logging.getLogger(__name__)
 

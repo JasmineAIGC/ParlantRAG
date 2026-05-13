@@ -12,12 +12,13 @@
   - DenseRetriever    — sentence-transformers + FAISS 本地向量检索
   - FlexRAGRetriever  — 加载 FlexRAG 构建的 FAISS 知识库
 
-Embedding：
+Embedding（直接从 model_client 暴露，方便统一导入）：
   - OpenAILikeEmbedding         — OpenAI 兼容 Embedding 客户端
   - SentenceTransformerEmbedding — 本地 sentence-transformers 封装
 """
 from rag_module.retrieval.types import Chunk, RetrievalResult
-from rag_module.retrieval.embedding import OpenAILikeEmbedding, SentenceTransformerEmbedding
+from model_client.api.embedding import OpenAILikeEmbedding
+from model_client.local.embedding import SentenceTransformerEmbedding
 from rag_module.retrieval.keyword import KeywordRetriever
 from rag_module.retrieval.dense import DenseRetriever
 from rag_module.retrieval.flexrag import FlexRAGRetriever
