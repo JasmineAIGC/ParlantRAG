@@ -436,7 +436,7 @@ class FlexRAGRetriever:
 
     async def retrieve(self, query: str, top_k: Optional[int] = None) -> RetrievalResult:
         """
-        执行向量检索（可选 BM25 混合），返回 :class:`~rag_module.base.RetrievalResult`。
+        执行向量检索（可选 BM25 混合），返回 :class:`~rag_module.retrieval.types.RetrievalResult`。
 
         算法参考 FlexRAG ``retrieval_opt.HybridRetriever.retrieve()``
         （``third_party/FlexRAG/flexrag/components/retrieval/retrieval_opt.py``）：
@@ -452,7 +452,7 @@ class FlexRAGRetriever:
             top_k:  返回片段数量，不传则使用构造时的 ``top_k``。
 
         Returns:
-            :class:`~rag_module.base.RetrievalResult`
+            :class:`~rag_module.retrieval.types.RetrievalResult`
         """
         k = top_k if top_k is not None else self._top_k
         dense_w = 1.0 - self._bm25_weight

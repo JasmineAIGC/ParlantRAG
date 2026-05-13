@@ -1,20 +1,27 @@
 """
-OpenAILikeEmbedding — OpenAI 兼容 Embedding 客户端。
+Embedding 模型封装 — 支持 OpenAI 兼容 API 和本地 sentence-transformers 两种模式。
 
-继承自 LlamaIndex ``BaseEmbedding``，通过 :func:`rag_module.api_client.make_openai_clients`
-获取 ``openai.OpenAI`` / ``openai.AsyncOpenAI`` SDK 实例，调用 vLLM / OpenAI 兼容的
-``/v1/embeddings`` 端点，支持同步和异步两种调用方式，以及私有部署网关的 ``access-key`` 请求头。
+:class:`OpenAILikeEmbedding`
+    继承自 LlamaIndex ``BaseEmbedding``，通过 :func:`rag_module.utils.make_openai_clients`
+    获取 ``openai.OpenAI`` / ``openai.AsyncOpenAI`` SDK 实例，调用 vLLM / OpenAI 兼容的
+    ``/v1/embeddings`` 端点，支持同步和异步调用，以及私有部署网关的 ``access-key`` 请求头。
+
+:class:`SentenceTransformerEmbedding`
+    继承自 LlamaIndex ``BaseEmbedding``，使用 sentence-transformers 在本地推理，
+    不依赖外部 Embedding API 服务。
 
 实现参考 FlexRAG ``flexrag/components/retrieval/base.py`` 中的同名类，
 与知识库构建阶段使用完全相同的 Embedding 接口，保证向量维度一致。
 
 依赖::
 
-    pip install llama-index openai
+    pip install llama-index openai           # OpenAILikeEmbedding
+    pip install llama-index sentence-transformers  # SentenceTransformerEmbedding
 """
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any, List, Optional
 
 from rag_module.utils import first_env, make_openai_clients
