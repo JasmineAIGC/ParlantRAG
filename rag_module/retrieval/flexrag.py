@@ -1,10 +1,20 @@
 """
 FlexRAGRetriever — 加载 FlexRAG 构建的 FAISS 向量知识库。
 
-知识库调用方式参考 https://github.com/Xavier-123/FlexRAG 项目中
-``MultiVectorRetriever`` 和 ``OpenAILikeEmbedding`` 的实现（因为知识库本身就是由
-该项目的 ``scripts/build_knowledge_base.py`` 构建的，使用完全一致的索引格式与调用
-模式，确保 Embedding 和 FAISS 索引的兼容性）。
+知识库调用方式参考 https://github.com/Xavier-123/FlexRAG 项目中的以下实现：
+
+* **索引加载** — 参考 ``MultiVectorRetriever._load_index()``
+  （``flexrag/components/retrieval/multi_vector_retriever.py``）：
+  读取 ``faiss_index.bin``，通过 ``FaissVectorStore + StorageContext``
+  恢复 ``VectorStoreIndex``。
+
+* **混合检索算法** — 参考 ``HybridRetriever.retrieve()``
+  （``flexrag/components/retrieval/retrieval_opt.py``）：
+
+  1. 按权重缩放各路（向量 / BM25）召回分数。
+  2. 以 ``metadata["id"]``（优先）或文档文本（兜底）为键去重。
+  3. 同一文档多路命中时，保留分数更高的那条（max-score 策略）。
+  4. 按分数降序排列，截断至 ``top_k``。
 
 主要组件对应关系：
 
@@ -15,6 +25,8 @@ OpenAILikeEmbedding   flexrag/components/retrieval/base.py
                       （实现见 rag_module/retrieval/embedding.py）
 FlexRAGRetriever      flexrag/components/retrieval/multi_vector_retriever.py
                       (MultiVectorRetriever._load_index + retrieve)
+                  +   flexrag/components/retrieval/retrieval_opt.py
+                      (HybridRetriever.retrieve — 去重 & 融合算法)
 =============  ===============================================
 
 依赖::
@@ -283,10 +295,14 @@ class FlexRAGRetriever(BaseRetriever):
         """
         执行向量检索（可选 BM25 混合），返回 :class:`~rag_module.base.RetrievalResult`。
 
-        实现参考 FlexRAG ``retrieval_opt.HybridRetriever.retrieve()``
+        算法参考 FlexRAG ``retrieval_opt.HybridRetriever.retrieve()``
         （``third_party/FlexRAG/flexrag/components/retrieval/retrieval_opt.py``）：
-        使用 ``index.as_retriever()`` 获取向量检索结果，
-        可选与 BM25 结果按权重融合、去重后排序返回。
+
+        1. 通过 llama-index 的异步 ``aretrieve()`` 执行向量检索（避免嵌套事件循环）。
+        2. 可选地调用 BM25 检索，按权重缩放各路分数。
+        3. 以 ``metadata["id"]``（优先）或文档文本（兜底）为键去重——
+           同一文档出现多次时，保留分数更高的那条（max-score 策略，与 FlexRAG 一致）。
+        4. 按分数降序排列，截断至 ``top_k``。
 
         Args:
             query:  检索查询词。
@@ -298,7 +314,7 @@ class FlexRAGRetriever(BaseRetriever):
         k = top_k if top_k is not None else self._top_k
         dense_w = 1.0 - self._bm25_weight
 
-        logger.debug("[FlexRAGRetriever] 检索开始  query=%r  top_k=%d", query, k)
+        logger.info("[FlexRAGRetriever] 检索开始  query=%r  top_k=%d", query, k)
 
         # --- 向量检索 ---
         # 使用 llama-index 的异步 aretrieve()：它直接走 _aget_query_embedding() 路径，
@@ -324,31 +340,38 @@ class FlexRAGRetriever(BaseRetriever):
             logger.exception("[FlexRAGRetriever] 向量检索失败  query=%r", query)
             raise
 
-        logger.debug("[FlexRAGRetriever] 向量检索返回 %d 个节点", len(dense_nodes))
+        logger.info("[FlexRAGRetriever] 向量检索返回 %d 个节点", len(dense_nodes))
 
-        # scored: content_text → (node, combined_score)
-        scored: dict[str, tuple[Any, float]] = {}
+        # --- 多路召回结果收集 ---
+        # 每条结果：(node, weighted_score)
+        all_nodes: list[tuple[Any, float]] = []
         for node in dense_nodes:
-            key = node.get_content()
-            scored[key] = (node, (node.score or 0.0) * dense_w)
+            all_nodes.append((node, (node.score or 0.0) * dense_w))
 
-        # --- BM25 混合（可选）---
         if self._bm25_retriever is not None and self._bm25_weight > 0:
             bm25_nodes = await self._bm25_retriever.aretrieve(query)
-            logger.debug("[FlexRAGRetriever] BM25 检索返回 %d 个节点", len(bm25_nodes))
+            logger.info("[FlexRAGRetriever] BM25 检索返回 %d 个节点", len(bm25_nodes))
             for node in bm25_nodes:
-                key = node.get_content()
-                bm25_score = (node.score or 0.0) * self._bm25_weight
-                if key in scored:
-                    n, ds = scored[key]
-                    scored[key] = (n, ds + bm25_score)
-                else:
-                    scored[key] = (node, bm25_score)
+                all_nodes.append((node, (node.score or 0.0) * self._bm25_weight))
 
-        logger.debug("[FlexRAGRetriever] 合并去重后共 %d 个唯一文档", len(scored))
+        logger.info("[FlexRAGRetriever] 去重前共 %d 条结果", len(all_nodes))
 
-        # --- 排序 & 封装为 Chunk ---
-        sorted_items = sorted(scored.values(), key=lambda x: x[1], reverse=True)[:k]
+        # --- 去重（参考 FlexRAG HybridRetriever 的策略）---
+        # 以 metadata["id"] 为首选去重键（推荐），回退到文档文本（兜底）。
+        # 同一文档出现多次时保留分数更高的条目（max-score 策略）。
+        dedup: dict[str, tuple[Any, float]] = {}
+        for node, score in all_nodes:
+            meta = node.metadata or {}
+            key: str = meta.get("id") or node.get_content()
+            if key not in dedup:
+                dedup[key] = (node, score)
+            elif score > dedup[key][1]:
+                dedup[key] = (node, score)
+
+        logger.info("[FlexRAGRetriever] 去重后共 %d 个唯一文档", len(dedup))
+
+        # --- 排序 & 截断 & 封装为 Chunk ---
+        sorted_items = sorted(dedup.values(), key=lambda x: x[1], reverse=True)[:k]
 
         chunks: list[Chunk] = []
         for idx, (node, score) in enumerate(sorted_items):
@@ -369,7 +392,7 @@ class FlexRAGRetriever(BaseRetriever):
                 )
             )
 
-        logger.debug("[FlexRAGRetriever] 最终返回 %d 个片段", len(chunks))
+        logger.info("[FlexRAGRetriever] 最终返回 %d 个片段", len(chunks))
 
         return RetrievalResult(
             query=query,
