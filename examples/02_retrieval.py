@@ -20,11 +20,20 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 
 # 确保从任意目录运行时都能找到 rag_module（无需设置 PYTHONPATH）
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# 配置日志：将 INFO 及以上级别输出到控制台，包含完整异常 traceback。
+# 必须在 import rag_module 之前完成，以便 rag_module 内部的 logger 正确初始化。
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 from dotenv import load_dotenv
 

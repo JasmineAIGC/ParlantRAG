@@ -229,6 +229,10 @@ class FlexRAGRetriever(BaseRetriever):
         使用 ``SentenceTransformerEmbedding`` 在本地加载 Embedding 模型
         （与 ``temp/embedding.py`` 中的 ``EmbeddingClient`` 本地模式一致），
         通过 ``FaissVectorStore + StorageContext`` 恢复 ``VectorStoreIndex``。
+
+        加载过程中会主动探测 Embedding 模型的输出维度，并与 FAISS 索引维度比对。
+        若两者不一致，立即抛出清晰的 ``ValueError``，而非等到检索时因 FAISS
+        ``assert d == self.d`` 抛出难以理解的 ``AssertionError``。
         """
         try:
             import faiss as _faiss
@@ -261,7 +265,39 @@ class FlexRAGRetriever(BaseRetriever):
         )
         Settings.embed_model = self._embed_model
 
+        # --- 主动维度校验（参考 MultiVectorRetriever._detect_embedding_dim）---
+        # 在加载 FAISS 索引后立即比对维度，确保 Embedding 模型与索引完全兼容。
+        # 若不一致，此处抛出清晰 ValueError，而非等到 retrieve() 时
+        # 遇到 FAISS 内部 "assert d == self.d" 的 AssertionError。
         faiss_index = _faiss.read_index(faiss_path)
+        faiss_dim: int = faiss_index.d
+
+        try:
+            probe_vec = self._embed_model.get_text_embedding("维度探测")
+            embed_dim = len(probe_vec)
+        except Exception as probe_exc:
+            raise RuntimeError(
+                f"Embedding 模型维度探测失败（模型：{self._embedding_model}，"
+                f"路径：{self._embedding_model_path}）。\n"
+                f"原始错误：{probe_exc}"
+            ) from probe_exc
+
+        if embed_dim != faiss_dim:
+            raise ValueError(
+                f"Embedding 维度与 FAISS 索引不匹配！\n"
+                f"  FAISS 索引维度：{faiss_dim}\n"
+                f"  当前模型输出维度：{embed_dim}\n"
+                f"  当前模型名称：{self._embedding_model}\n"
+                f"  当前模型路径：{self._embedding_model_path}\n"
+                f"请确认 EMBEDDING_MODEL_PATH 所指向的模型与构建知识库时使用的模型完全一致，"
+                f"包括模型名称和版本（不同模型/量化版本的向量维度可能不同）。"
+            )
+
+        logger.info(
+            "[FlexRAGRetriever] Embedding 维度校验通过  embed_dim=%d  faiss_dim=%d",
+            embed_dim, faiss_dim,
+        )
+
         vector_store = FaissVectorStore(faiss_index=faiss_index)
         storage_context = StorageContext.from_defaults(
             vector_store=vector_store,
@@ -323,6 +359,15 @@ class FlexRAGRetriever(BaseRetriever):
         dense_retriever = self._index.as_retriever(similarity_top_k=k)
         try:
             dense_nodes = await dense_retriever.aretrieve(query)
+        except AssertionError as exc:
+            # FAISS 内部 `assert d == self.d` 失败：查询向量维度与索引不一致。
+            # 正常情况下 _load_index() 的主动维度校验会提前捕获这个问题；
+            # 这里作为安全兜底，转换为可读的 ValueError。
+            raise ValueError(
+                f"FAISS 向量维度断言失败（assert d == self.d）。\n"
+                f"查询时的 Embedding 模型输出维度与知识库索引维度不一致。\n"
+                f"请确认 EMBEDDING_MODEL_PATH 所指向的模型与构建知识库时使用的模型完全一致。"
+            ) from exc
         except Exception as exc:
             exc_str = str(exc)
             # httpx / httpcore 连接错误：Embedding 服务不可达
