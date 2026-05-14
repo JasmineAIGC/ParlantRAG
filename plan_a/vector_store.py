@@ -159,8 +159,9 @@ class VectorStore:
             doc_id = doc_ids[int(idx)]
             doc = self._document_store.get(doc_id, {})
 
-            # L2 距离 → 相似度分数（与知识库构建阶段的索引类型保持一致）
-            score = float(1.0 - distances[0][i])
+            # L2 距离 → 相似度分数，使用 1/(1+d) 公式保证结果在 (0, 1] 范围内
+            # （L2 距离无界，直接用 1-d 会在距离 >1 时产生负数）
+            score = float(1.0 / (1.0 + distances[0][i]))
 
             chunks.append(
                 DocChunk(
@@ -171,5 +172,5 @@ class VectorStore:
                 )
             )
 
-        # 过滤掉无效（负分）片段
-        return [c for c in chunks if c.score >= 0.0]
+        # 1/(1+d) is always in (0, 1], so no negative-score filtering needed
+        return chunks
