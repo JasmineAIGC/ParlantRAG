@@ -137,6 +137,7 @@ class VectorStore:
 
         Returns:
             按相似度降序排列的 :class:`~plan_a.core.types.DocChunk` 列表。
+            基于 ``1 / (1 + distance)`` 转换后，返回分数恒位于 ``(0, 1]`` 区间。
 
         Raises:
             RuntimeError: 若 ``initialize()`` 尚未调用。
@@ -208,7 +209,9 @@ class VectorStore:
         if not path.exists() or not path.is_dir():
             return path, None
 
-        for candidate_dir in sorted(p for p in path.iterdir() if p.is_dir()):
+        for candidate_dir in path.iterdir():
+            if not candidate_dir.is_dir():
+                continue
             index_path = self._find_existing_file(candidate_dir, self._INDEX_FILENAMES)
             if index_path is not None:
                 return candidate_dir, index_path
@@ -259,10 +262,7 @@ class VectorStore:
         def _sort_key(key_node_pair: tuple[str, str]) -> tuple[int, str]:
             key = key_node_pair[0]
             if key.isdigit():
-                try:
-                    return (0, f"{int(key):012d}")
-                except ValueError:
-                    logger.warning("[VectorStore] 忽略异常索引键格式：%s", key)
+                return (0, f"{int(key):012d}")
             return (1, key)
 
         return [node_id for _, node_id in sorted(nodes_dict.items(), key=_sort_key)]
