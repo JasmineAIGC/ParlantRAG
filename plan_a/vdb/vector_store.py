@@ -201,11 +201,14 @@ class VectorStore:
                 f"请传入知识库目录，或以下索引文件之一：{', '.join(self._INDEX_FILENAMES)}"
             )
 
-        candidate_dirs = [path]
-        if path.name == "knowledge_persist_dir":
-            candidate_dirs.extend(sorted(p for p in path.iterdir() if p.is_dir()))
+        index_path = self._find_existing_file(path, self._INDEX_FILENAMES)
+        if index_path is not None:
+            return path, index_path
 
-        for candidate_dir in candidate_dirs:
+        if not path.exists() or not path.is_dir():
+            return path, None
+
+        for candidate_dir in sorted(p for p in path.iterdir() if p.is_dir()):
             index_path = self._find_existing_file(candidate_dir, self._INDEX_FILENAMES)
             if index_path is not None:
                 return candidate_dir, index_path
