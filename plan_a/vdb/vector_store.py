@@ -258,7 +258,12 @@ class VectorStore:
 
         def _sort_key(key_node_pair: tuple[str, str]) -> tuple[int, str]:
             key = key_node_pair[0]
-            return (0, f"{int(key):012d}") if key.isdigit() else (1, key)
+            if key.isdigit():
+                try:
+                    return (0, f"{int(key):012d}")
+                except ValueError:
+                    logger.warning("[VectorStore] 忽略异常索引键格式：%s", key)
+            return (1, key)
 
         return [node_id for _, node_id in sorted(nodes_dict.items(), key=_sort_key)]
 

@@ -45,8 +45,13 @@ class PlanAConfig:
                 "./knowledge_base/knowledge_persist_dir/hotpotqa",
             )
         )
+        top_k_raw = os.environ.get("TOP_K", "5")
+        try:
+            top_k = int(top_k_raw)
+        except ValueError as exc:
+            raise ValueError(f"TOP_K 必须是整数，当前值为：{top_k_raw!r}") from exc
         return cls(
             knowledge_base_path=kb_path,
             vector_db_collection=os.environ.get("VECTOR_DB_COLLECTION", "plan_a"),
-            top_k=int(os.environ.get("TOP_K", "5")),
+            top_k=top_k,
         )
