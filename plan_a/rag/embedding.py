@@ -2,18 +2,19 @@
 embedding.py — 文本向量化组件（Embedder）。
 
 对应架构图中 RAG 服务的 Embedding 步骤。
-底层通过 OpenAI-compatible API 调用远程 Embedding 服务，
-直接使用 model_client.OpenAILikeEmbedding（共享基础设施），
-不依赖 parlant_rag/ 或其他 RAG 实现模块。
+底层统一复用 ``model_client/``：
 
-配置优先级（同 model_client）：
-  EMBEDDING_BASE_URL > QWEN3_BASE_URL > LLM_BASE_URL
+- 本地模型：``SentenceTransformerEmbedding``（``EMBEDDING_MODEL_PATH``）
+- API 模式：``OpenAILikeEmbedding``（``EMBEDDING_BASE_URL`` 等）
+
+所有配置均从 ``.env`` / 环境变量读取。
 """
 from __future__ import annotations
 
-from typing import List, Optional
+import os
+from typing import Any, List, Optional
 
-from model_client import OpenAILikeEmbedding
+from model_client import OpenAILikeEmbedding, SentenceTransformerEmbedding
 from utils.logging import get_logger
 
 
@@ -39,18 +40,23 @@ class Embedder:
         vector = await embedder.embed_query("退货政策是什么？")
     """
 
-    def __init__(self, client: Optional[OpenAILikeEmbedding] = None) -> None:
+    def __init__(self, client: Optional[Any] = None) -> None:
         """
         Args:
-            client: 预先创建的 OpenAILikeEmbedding 客户端；
+            client: 预先创建的 model_client embedding 客户端；
                     为 ``None`` 时首次使用时从环境变量自动创建。
         """
         self._client = client
 
-    def _ensure_client(self) -> OpenAILikeEmbedding:
+    def _ensure_client(self) -> Any:
         if self._client is None:
-            logger.info("[Embedder] 从环境变量初始化 OpenAILikeEmbedding")
-            self._client = OpenAILikeEmbedding.from_env()
+            model_path = os.getenv("EMBEDDING_MODEL_PATH")
+            if model_path:
+                logger.info("[Embedder] 从环境变量初始化本地 SentenceTransformerEmbedding")
+                self._client = SentenceTransformerEmbedding.from_env()
+            else:
+                logger.info("[Embedder] 从环境变量初始化 OpenAILikeEmbedding")
+                self._client = OpenAILikeEmbedding.from_env()
         return self._client
 
     async def embed_texts(self, texts: List[str]) -> List[List[float]]:

@@ -22,16 +22,20 @@
     python examples/05_plan_a_agent.py
 
 前置条件：
-    1. 已构建知识库索引（含 faiss_index 和 document_store.json）
+    1. 已构建知识库索引（支持 faiss_index.bin / faiss_index 及不同文档持久化格式）
     2. 已配置 .env（参考 .env.example）：
-       - EMBEDDING_BASE_URL / EMBEDDING_MODEL
+       - EMBEDDING_MODEL_PATH 或 EMBEDDING_BASE_URL / EMBEDDING_MODEL
        - KNOWLEDGE_BASE_PATH（或 KNOWLEDGE_PERSIST_DIR）
+    3. 测试 query 从 knowledge_base/hotpotqa.json 中抽样读取
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
+from pathlib import Path
+from random import Random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -44,6 +48,8 @@ from utils.logging import setup_logging
 
 
 logger = setup_logging("plan_a_agent", level="INFO")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_HOTPOTQA_PATH = _REPO_ROOT / "knowledge_base" / "hotpotqa.json"
 
 # ---------------------------------------------------------------------------
 # Agent 配置（外部入口，由调用方决定，与 RAG 逻辑解耦）
@@ -54,6 +60,24 @@ _AGENT_DESCRIPTION = (
     "当用户提出问题时，会自动检索相关知识库内容并给出准确、简洁的回答。"
     "如果知识库中没有相关内容，会如实告知。"
 )
+
+
+def _load_test_queries(limit: int = 3) -> list[str]:
+    with _HOTPOTQA_PATH.open("r", encoding="utf-8") as f:
+        samples = json.load(f)
+
+    questions = [
+        item["question"].strip()
+        for item in samples
+        if isinstance(item, dict) and isinstance(item.get("question"), str) and item["question"].strip()
+    ]
+    if not questions:
+        raise ValueError(f"未从数据集读取到可用问题：{_HOTPOTQA_PATH}")
+
+    if len(questions) <= limit:
+        return questions
+
+    return Random(0).sample(questions, limit)
 
 
 async def main() -> None:
@@ -77,11 +101,8 @@ async def main() -> None:
     print(f"\n{'─' * 60}")
     print("🔍  RAG 管道独立检索测试")
     print(f"{'─' * 60}")
-    test_queries = [
-        "30天能退货吗？",
-        "会员有哪些权益？",
-        "如何联系客服？",
-    ]
+    test_queries = _load_test_queries()
+    print(f"📚 测试问题来源：{_HOTPOTQA_PATH}")
     for query in test_queries:
         print(f"\n  问：{query}")
         chunks = await pipeline.retrieve(query)
