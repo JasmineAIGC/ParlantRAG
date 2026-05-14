@@ -53,7 +53,10 @@ class Embedder:
             model_path = os.getenv("EMBEDDING_MODEL_PATH")
             if model_path:
                 logger.info("[Embedder] 从环境变量初始化本地 SentenceTransformerEmbedding")
-                self._client = SentenceTransformerEmbedding.from_env()
+                self._client = SentenceTransformerEmbedding(
+                    model_path=model_path,
+                    model_name=os.getenv("EMBEDDING_MODEL") or None,
+                )
             else:
                 logger.info("[Embedder] 从环境变量初始化 OpenAILikeEmbedding")
                 self._client = OpenAILikeEmbedding.from_env()

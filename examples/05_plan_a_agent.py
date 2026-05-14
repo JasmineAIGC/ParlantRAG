@@ -77,6 +77,7 @@ def _load_test_queries(limit: int = 3) -> list[str]:
     if len(questions) <= limit:
         return questions
 
+    # 固定 seed，保证示例输出可复现，便于对比不同改动的检索效果。
     return Random(0).sample(questions, limit)
 
 

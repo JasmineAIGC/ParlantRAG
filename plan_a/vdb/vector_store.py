@@ -229,7 +229,11 @@ class VectorStore:
         if not isinstance(nodes_dict, dict):
             return []
 
-        return [node_id for _, node_id in sorted(nodes_dict.items(), key=lambda item: int(item[0]))]
+        def _sort_key(item: tuple[str, str]) -> tuple[int, str]:
+            key = item[0]
+            return (0, f"{int(key):012d}") if key.isdigit() else (1, key)
+
+        return [node_id for _, node_id in sorted(nodes_dict.items(), key=_sort_key)]
 
     def _parse_store_file(self, store_path: Path, ordered_node_ids: List[str]) -> List[Dict[str, Any]]:
         data = self._read_json(store_path)
@@ -347,7 +351,8 @@ class VectorStore:
                 for ctx in item.get("context", []):
                     if not isinstance(ctx, (list, tuple)) or len(ctx) != 2:
                         continue
-                    title, passages = ctx
+                    title = ctx[0]
+                    passages = ctx[1]
                     if not isinstance(title, str) or not isinstance(passages, list):
                         continue
                     content = " ".join(
