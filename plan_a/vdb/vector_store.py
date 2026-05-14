@@ -84,7 +84,9 @@ class VectorStore:
                 "  pip install faiss-gpu   # GPU 版"
             ) from exc
 
-        persist_path, index_path = self._resolve_persist_dir_and_index(persist_dir)
+        persist_path = Path(persist_dir)
+        index_path = self._find_existing_file(persist_path, self._INDEX_FILENAMES)
+
         if not persist_path.exists():
             raise FileNotFoundError(
                 f"知识库目录不存在：{persist_dir}\n"
@@ -94,11 +96,6 @@ class VectorStore:
             raise FileNotFoundError(
                 f"FAISS 索引文件不存在：{persist_path}\n"
                 "请先运行知识库构建脚本生成索引。"
-            )
-        if index_path.stat().st_size == 0:
-            raise ValueError(
-                f"FAISS 索引文件为空：{index_path}\n"
-                "请确认本地知识库文件已正确下载/生成（例如 Git LFS 文件已拉取完成）。"
             )
 
         logger.info(f"[VectorStore] 加载 FAISS 索引：{index_path}")
@@ -137,7 +134,6 @@ class VectorStore:
 
         Returns:
             按相似度降序排列的 :class:`~plan_a.core.types.DocChunk` 列表。
-            基于 ``1 / (1 + distance)`` 转换后，返回分数恒位于 ``(0, 1]`` 区间。
 
         Raises:
             RuntimeError: 若 ``initialize()`` 尚未调用。
@@ -192,32 +188,6 @@ class VectorStore:
                 return path
         return None
 
-    def _resolve_persist_dir_and_index(self, persist_dir: str) -> tuple[Path, Optional[Path]]:
-        path = Path(persist_dir)
-        if path.is_file():
-            if path.name in self._INDEX_FILENAMES:
-                return path.parent, path
-            raise FileNotFoundError(
-                f"不支持的知识库文件路径：{persist_dir}\n"
-                f"请传入知识库目录，或以下索引文件之一：{', '.join(self._INDEX_FILENAMES)}"
-            )
-
-        index_path = self._find_existing_file(path, self._INDEX_FILENAMES)
-        if index_path is not None:
-            return path, index_path
-
-        if not path.exists() or not path.is_dir():
-            return path, None
-
-        for candidate_dir in path.iterdir():
-            if not candidate_dir.is_dir():
-                continue
-            index_path = self._find_existing_file(candidate_dir, self._INDEX_FILENAMES)
-            if index_path is not None:
-                return candidate_dir, index_path
-
-        return path, None
-
     def _read_json(self, path: Path) -> Any:
         if not path.exists():
             return None
@@ -259,11 +229,9 @@ class VectorStore:
         if not isinstance(nodes_dict, dict):
             return []
 
-        def _sort_key(key_node_pair: tuple[str, str]) -> tuple[int, str]:
-            key = key_node_pair[0]
-            if key.isdigit():
-                return (0, f"{int(key):012d}")
-            return (1, key)
+        def _sort_key(item: tuple[str, str]) -> tuple[int, str]:
+            key = item[0]
+            return (0, f"{int(key):012d}") if key.isdigit() else (1, key)
 
         return [node_id for _, node_id in sorted(nodes_dict.items(), key=_sort_key)]
 
@@ -372,8 +340,7 @@ class VectorStore:
         dataset_name: str,
     ) -> List[Dict[str, Any]]:
         if isinstance(data, list):
-            first_item = data[0] if data else None
-            if isinstance(first_item, dict) and "content" in first_item:
+            if data and isinstance(data[0], dict) and "content" in data[0]:
                 docs = [self._normalize_doc(item) for item in data]
                 return [doc for doc in docs if doc is not None]
 

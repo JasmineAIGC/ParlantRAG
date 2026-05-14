@@ -40,18 +40,10 @@ class PlanAConfig:
         """从环境变量加载配置。兼容 KNOWLEDGE_BASE_PATH 和 KNOWLEDGE_PERSIST_DIR 两种命名。"""
         kb_path = (
             os.environ.get("KNOWLEDGE_BASE_PATH")
-            or os.environ.get(
-                "KNOWLEDGE_PERSIST_DIR",
-                "./knowledge_base/knowledge_persist_dir/hotpotqa",
-            )
+            or os.environ.get("KNOWLEDGE_PERSIST_DIR", "./knowledge_base")
         )
-        top_k_raw = os.environ.get("TOP_K", "5")
-        try:
-            top_k = int(top_k_raw)
-        except ValueError as exc:
-            raise ValueError(f"TOP_K 必须是整数，当前值为：{top_k_raw!r}") from exc
         return cls(
             knowledge_base_path=kb_path,
             vector_db_collection=os.environ.get("VECTOR_DB_COLLECTION", "plan_a"),
-            top_k=top_k,
+            top_k=int(os.environ.get("TOP_K", "5")),
         )
