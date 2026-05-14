@@ -25,9 +25,11 @@ import asyncio
 import os
 import sys
 import time
+from pathlib import Path
 
-# 确保从任意目录运行时都能找到 parlant_rag（无需设置 PYTHONPATH）
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+# 确保从任意目录运行时都能找到项目根包（无需设置 PYTHONPATH）
+sys.path.insert(0, str(_REPO_ROOT))
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -36,7 +38,7 @@ from model_client._utils import first_env
 from utils.logging import setup_logging
 
 # 设置日志（输出到终端和文件）
-logger = setup_logging("check_env", level="INFO", log_dir="../logs")
+logger = setup_logging("check_env", level="INFO", log_dir=str(_REPO_ROOT / "logs"))
 
 # ---------------------------------------------------------------------------
 # 辅助
