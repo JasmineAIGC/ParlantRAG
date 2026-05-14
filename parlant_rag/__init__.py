@@ -1,43 +1,68 @@
 """
-parlant_rag — ParlantRAG 核心模块。
+parlant_rag — 基于 Parlant 框架 + model_client 的完整 RAG 系统。
 
-模块结构：
-  parlant_rag/retrieval/   — 检索（Chunk, RetrievalResult, FlexRAGRetriever 等）
-  parlant_rag/evaluation/  — 评估（EvaluationResult, LLMEvaluator）
-  parlant_rag/tools/       — Parlant 集成工具（make_rag_tools, RAGModule）
+架构设计：
+  - 使用 Parlant 的接口抽象层（Embedder, SchematicGenerator, StreamingTextGenerator）
+  - 使用 model_client 的实际实现（OpenAILikeEmbedding, LLMClient）
+  - 通过适配器层桥接两者
 
-模型调用（实现位于 model_client/）：
-  model_client/api/        — 通过 API 调用 LLM 和 Embedding 服务
-  model_client/local/      — 本地加载模型（sentence-transformers）
+核心组件：
+  - adapters: Parlant 接口与 model_client 的适配器
+  - config: RAG 配置管理
+  - retriever: 文档检索器（支持 FAISS / Parlant VectorDatabase）
+  - evaluator: 检索结果评估器
+  - rag: RAG 主类
 
-所有 API 配置均从项目根目录 .env 文件自动加载。
+Parlant 框架特性利用：
+  - NLPService: 统一的 NLP 服务接口
+  - Embedder: 文本嵌入接口
+  - SchematicGenerator: 结构化输出生成器
+  - StreamingTextGenerator: 流式文本生成器
+  - VectorDatabase: 向量数据库接口（可选）
 
-Parlant 集成（可选，需安装 parlant）：
-  parlant_rag/tools/module.py       — RAGModule
-  parlant_rag/tools/parlant_tools.py — make_rag_tools
+完整 RAG 流程：
+  1. 文档加载与向量化（使用 Parlant Embedder）
+  2. 向量检索（支持 FAISS / Parlant VectorDatabase）
+  3. 检索结果评估（使用 Parlant SchematicGenerator）
+  4. 回答生成（使用 Parlant StreamingTextGenerator）
+
+使用方式：
+    from parlant_rag import RAG, RAGConfig
+    
+    # 方式1：纯 model_client 模式（推荐）
+    config = RAGConfig.from_env()
+    rag = RAG(config=config)
+    
+    # 添加文档
+    await rag.add_documents([
+        {"content": "文档内容...", "source": "doc1.txt"}
+    ])
+    
+    # 查询
+    result = await rag.query("你的问题")
 """
-from model_client.api.llm import LLMClient, LLMConfig
-from parlant_rag.retrieval import Chunk, RetrievalResult, FlexRAGRetriever
-from parlant_rag.evaluation import EvaluationResult, LLMEvaluator
-
-# Parlant 集成（可选）：仅当 parlant 已安装时才可用。
-try:
-    from parlant_rag.tools.module import RAGModule
-except ImportError:
-    RAGModule = None  # type: ignore[assignment,misc]
+from parlant_rag.config import RAGConfig
+from parlant_rag.retriever import Retriever, RetrievalResult, RetrievedChunk
+from parlant_rag.evaluator import Evaluator, EvaluationResult
+from parlant_rag.rag import RAG, RAGResult
+from parlant_rag.adapters import (
+    ModelClientEmbedder,
+    ModelClientStreamingTextGenerator,
+    ModelClientSchematicGenerator,
+    ModelClientNLPService,
+)
 
 __all__ = [
-    # 数据类
-    "Chunk",
+    "RAGConfig",
+    "Retriever",
     "RetrievalResult",
+    "RetrievedChunk",
+    "Evaluator",
     "EvaluationResult",
-    # LLM 客户端
-    "LLMClient",
-    "LLMConfig",
-    # 检索器
-    "FlexRAGRetriever",
-    # 评估器
-    "LLMEvaluator",
-    # Parlant 集成（可选）
-    "RAGModule",
+    "RAG",
+    "RAGResult",
+    "ModelClientEmbedder",
+    "ModelClientStreamingTextGenerator",
+    "ModelClientSchematicGenerator",
+    "ModelClientNLPService",
 ]

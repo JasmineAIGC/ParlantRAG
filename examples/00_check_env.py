@@ -1,5 +1,5 @@
 """
-00_check_env.py — 验证 .env 配置的所有 API 和本地模型是否真正可用
+check_env.py — 验证 .env 配置的所有 API 和本地模型是否真正可用
 
 根据 .env 文件中的配置，依次检测：
   1. LLM API（QWEN3_BASE_URL / LLM_BASE_URL）— 发送一次 chat completion 请求
@@ -10,9 +10,9 @@
 方便在 CI 或启动脚本中使用。
 
 运行方式（从项目根目录 或 examples/ 目录均可）：
-    python examples/00_check_env.py
+    python examples/check_env.py
     # 或
-    cd examples && python 00_check_env.py
+    cd examples && python check_env.py
 
 前置条件：
     1. 复制并填写 .env.example → .env
@@ -30,10 +30,13 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-
 load_dotenv()
 
-from model_client._utils import first_env  # noqa: E402
+from model_client._utils import first_env
+from utils.logging import setup_logging
+
+# 设置日志（输出到终端和文件）
+logger = setup_logging("check_env", level="INFO", log_dir="../logs")
 
 # ---------------------------------------------------------------------------
 # 辅助
@@ -79,6 +82,7 @@ async def _check_llm() -> tuple[bool, str]:
         return False, "未配置 QWEN3_BASE_URL / LLM_BASE_URL，跳过"
 
     label = f"LLM API  model={llm_model or '(未配置)'}  url={llm_url}"
+    logger.info(f"[CheckEnv] 开始检测 LLM API: {label}")
 
     try:
         from openai import AsyncOpenAI  # type: ignore[import]
@@ -91,8 +95,10 @@ async def _check_llm() -> tuple[bool, str]:
         )
         elapsed = time.monotonic() - t0
         reply = (resp.choices[0].message.content or "").strip()[:60]
+        logger.info(f"[CheckEnv] LLM API 检测通过: {elapsed:.1f}s")
         return True, f"{label}  [{elapsed:.1f}s]  回复：{reply!r}"
     except Exception as exc:
+        logger.error(f"[CheckEnv] LLM API 检测失败: {exc}")
         return False, f"{label}  错误：{exc}"
 
 
@@ -110,6 +116,7 @@ async def _check_embedding_api() -> tuple[bool, str]:
         return False, "未配置 EMBEDDING_BASE_URL，跳过"
 
     label = f"Embedding API  model={emb_model or '(未配置)'}  url={emb_url}"
+    logger.info(f"[CheckEnv] 开始检测 Embedding API: {label}")
 
     try:
         from openai import AsyncOpenAI  # type: ignore[import]
@@ -121,8 +128,10 @@ async def _check_embedding_api() -> tuple[bool, str]:
         )
         elapsed = time.monotonic() - t0
         dim = len(resp.data[0].embedding)
+        logger.info(f"[CheckEnv] Embedding API 检测通过: {elapsed:.1f}s, dim={dim}")
         return True, f"{label}  [{elapsed:.1f}s]  dim={dim}"
     except Exception as exc:
+        logger.error(f"[CheckEnv] Embedding API 检测失败: {exc}")
         return False, f"{label}  错误：{exc}"
 
 
@@ -137,8 +146,10 @@ async def _check_local_embedding() -> tuple[bool, str]:
         return False, "未配置 EMBEDDING_MODEL_PATH，跳过"
 
     label = f"本地 Embedding  path={model_path}"
+    logger.info(f"[CheckEnv] 开始检测本地 Embedding: {label}")
 
     if not os.path.exists(model_path):
+        logger.error(f"[CheckEnv] 本地 Embedding 路径不存在: {model_path}")
         return False, f"{label}  路径不存在"
 
     try:
@@ -150,8 +161,10 @@ async def _check_local_embedding() -> tuple[bool, str]:
         )
         elapsed = time.monotonic() - t0
         dim = len(vec[0])
+        logger.info(f"[CheckEnv] 本地 Embedding 检测通过: {elapsed:.1f}s, dim={dim}")
         return True, f"{label}  [{elapsed:.1f}s]  dim={dim}"
     except Exception as exc:
+        logger.error(f"[CheckEnv] 本地 Embedding 检测失败: {exc}")
         return False, f"{label}  错误：{exc}"
 
 
@@ -163,6 +176,7 @@ async def main() -> int:
     print("=" * 60)
     print("  ParlantRAG — .env 配置可用性检测")
     print("=" * 60)
+    logger.info("[CheckEnv] 开始环境检测")
 
     checks = [
         ("LLM API", _check_llm()),
@@ -177,7 +191,6 @@ async def main() -> int:
         skipped = "跳过" in detail
         if skipped:
             print(f"  {_SKIP}  {detail}")
-            # 未配置不算失败
             results.append((name, True, detail))
         else:
             _result(name, ok, detail)
@@ -201,14 +214,17 @@ async def main() -> int:
 
     print()
     if failed:
+        logger.error(f"[CheckEnv] 检测失败: {', '.join(failed)}")
         print(f"❌ 以下项目检测失败：{', '.join(failed)}")
         print("   请检查 .env 配置及对应服务是否已启动。")
         return 1
     else:
         configured = [n for n, _, d in results if "跳过" not in d]
         if configured:
+            logger.info(f"[CheckEnv] 全部检测通过（{len(configured)} 项）")
             print(f"✅ 全部已配置项目检测通过（{len(configured)} 项）。")
         else:
+            logger.warning("[CheckEnv] 未检测到任何已配置项")
             print("⚠️  .env 中未检测到任何已配置项（LLM / Embedding），请检查配置。")
             return 1
     return 0
