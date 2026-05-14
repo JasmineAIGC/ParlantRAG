@@ -16,10 +16,7 @@ plan_a — 基于 Parlant 框架的极简版 RAG 方案。
 其中 core/ 提供跨模块复用的配置与共享类型。
 """
 from plan_a.core import DocChunk, PlanAConfig
-from plan_a.guidelines import setup_guidelines
 from plan_a.rag import Embedder, RAGPipeline
-from plan_a.retrievers import make_scoped_retriever
-from plan_a.tools import make_rag_tool
 from plan_a.vdb import VectorStore
 
 __all__ = [
@@ -36,3 +33,21 @@ __all__ = [
     "make_rag_tool",
     "setup_guidelines",
 ]
+
+
+def make_scoped_retriever(*args, **kwargs):
+    from plan_a.retrievers import make_scoped_retriever as _impl
+
+    return _impl(*args, **kwargs)
+
+
+def make_rag_tool(*args, **kwargs):
+    from plan_a.tools import make_rag_tool as _impl
+
+    return _impl(*args, **kwargs)
+
+
+def setup_guidelines(*args, **kwargs):
+    from plan_a.guidelines import setup_guidelines as _impl
+
+    return _impl(*args, **kwargs)

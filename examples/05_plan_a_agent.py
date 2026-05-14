@@ -113,7 +113,7 @@ async def main() -> None:
             )
             print(f"✅ Agent 创建完成  id={agent.id}")
 
-            # ─ 挂载 RAG 功能（调用 plan_a.guidelines.setup_guidelines）─
+            # ─ 挂载 RAG 功能（调用 plan_a/guidelines/ 下的 setup_guidelines）─
             print("\n⏳ 配置 Guidelines（Scoped Retriever + RAG Tool）...")
             scoped_gl, tool_gl = await setup_guidelines(agent, pipeline)
             print("✅ Guidelines 配置完成")
