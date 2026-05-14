@@ -44,6 +44,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+import parlant.sdk as p
+
 from plan_a.rag_service import RagService
 from plan_a.tools import make_rag_tool
 from utils.logging import get_logger
@@ -144,8 +146,6 @@ async def build_plan_a_agent(
                 agent = await build_plan_a_agent(server, rag)
                 # server 持续运行，开始接受用户会话
     """
-    import parlant.sdk as p
-
     logger.info(f"[AgentBuilder] 创建 Agent: {agent_name!r}")
 
     # 1. 创建 Parlant Agent

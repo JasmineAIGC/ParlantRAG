@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Optional, List, Dict, Any
 
+import parlant.sdk as p
+
 from parlant_rag.config import RAGConfig
 from parlant_rag.retriever import Retriever
 from parlant_rag.adapters import ModelClientEmbedder
@@ -40,6 +42,9 @@ class DocChunk:
 
     __slots__ = ("content", "source", "score")
 
+    SCORE_PRECISION = 4
+    """序列化时 score 字段的小数位精度。"""
+
     def __init__(self, content: str, source: str, score: float) -> None:
         self.content = content
         self.source = source
@@ -47,7 +52,11 @@ class DocChunk:
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典，方便序列化给 Parlant RetrieverResult / ToolResult。"""
-        return {"content": self.content, "source": self.source, "score": round(self.score, 4)}
+        return {
+            "content": self.content,
+            "source": self.source,
+            "score": round(self.score, self.SCORE_PRECISION),
+        }
 
     def __repr__(self) -> str:
         return f"DocChunk(source={self.source!r}, score={self.score:.3f})"
@@ -179,8 +188,6 @@ class RagService:
                 )
                 await gl.attach_retriever(rag.as_retriever_fn())
         """
-        import parlant.sdk as p
-
         async def _retriever_fn(
             context: p.RetrieverContext,
         ) -> p.RetrieverResult | None:

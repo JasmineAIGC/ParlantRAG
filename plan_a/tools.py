@@ -34,6 +34,8 @@ Parlant 的 Tool（工具）是**辅助**知识获取方式，由 Agent 主动�
 """
 from __future__ import annotations
 
+import parlant.sdk as p
+
 from plan_a.rag_service import RagService
 from utils.logging import get_logger
 
@@ -67,8 +69,6 @@ def make_rag_tool(rag_service: RagService):
             tools=[search_knowledge],
         )
     """
-    import parlant.sdk as p
-
     @p.tool
     async def search_knowledge(context: p.ToolContext, query: str) -> p.ToolResult:
         """
