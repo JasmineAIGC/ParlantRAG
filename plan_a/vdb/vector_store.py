@@ -84,9 +84,7 @@ class VectorStore:
                 "  pip install faiss-gpu   # GPU 版"
             ) from exc
 
-        persist_path = Path(persist_dir)
-        index_path = self._find_existing_file(persist_path, self._INDEX_FILENAMES)
-
+        persist_path, index_path = self._resolve_persist_dir_and_index(persist_dir)
         if not persist_path.exists():
             raise FileNotFoundError(
                 f"知识库目录不存在：{persist_dir}\n"
@@ -96,6 +94,11 @@ class VectorStore:
             raise FileNotFoundError(
                 f"FAISS 索引文件不存在：{persist_path}\n"
                 "请先运行知识库构建脚本生成索引。"
+            )
+        if index_path.stat().st_size == 0:
+            raise ValueError(
+                f"FAISS 索引文件为空：{index_path}\n"
+                "请确认本地知识库文件已正确下载/生成（例如 Git LFS 文件已拉取完成）。"
             )
 
         logger.info(f"[VectorStore] 加载 FAISS 索引：{index_path}")
@@ -187,6 +190,27 @@ class VectorStore:
             if path.exists():
                 return path
         return None
+
+    def _resolve_persist_dir_and_index(self, persist_dir: str) -> tuple[Path, Optional[Path]]:
+        path = Path(persist_dir)
+        if path.is_file():
+            if path.name in self._INDEX_FILENAMES:
+                return path.parent, path
+            raise FileNotFoundError(
+                f"不支持的知识库文件路径：{persist_dir}\n"
+                f"请传入知识库目录，或以下索引文件之一：{', '.join(self._INDEX_FILENAMES)}"
+            )
+
+        candidate_dirs = [path]
+        if path.name == "knowledge_persist_dir":
+            candidate_dirs.extend(sorted(p for p in path.iterdir() if p.is_dir()))
+
+        for candidate_dir in candidate_dirs:
+            index_path = self._find_existing_file(candidate_dir, self._INDEX_FILENAMES)
+            if index_path is not None:
+                return candidate_dir, index_path
+
+        return path, None
 
     def _read_json(self, path: Path) -> Any:
         if not path.exists():

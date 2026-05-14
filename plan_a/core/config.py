@@ -40,7 +40,10 @@ class PlanAConfig:
         """从环境变量加载配置。兼容 KNOWLEDGE_BASE_PATH 和 KNOWLEDGE_PERSIST_DIR 两种命名。"""
         kb_path = (
             os.environ.get("KNOWLEDGE_BASE_PATH")
-            or os.environ.get("KNOWLEDGE_PERSIST_DIR", "./knowledge_base")
+            or os.environ.get(
+                "KNOWLEDGE_PERSIST_DIR",
+                "./knowledge_base/knowledge_persist_dir/hotpotqa",
+            )
         )
         return cls(
             knowledge_base_path=kb_path,

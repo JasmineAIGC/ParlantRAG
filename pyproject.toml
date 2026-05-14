@@ -21,4 +21,4 @@ parlant = ["parlant"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["parlant_rag*", "model_client*"]
+include = ["parlant_rag*", "model_client*", "plan_a*"]
