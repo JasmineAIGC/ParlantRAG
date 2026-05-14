@@ -1,0 +1,95 @@
+"""
+scoped_retriever.py — Scoped Retriever（自动检索）组件。
+
+对应架构图中的 ``SR[Scoped Retriever]`` 模块。
+
+工作流程::
+
+    Guideline 匹配
+        │
+        ▼ Parlant 自动调用 RetrieverFunction
+    _scoped_retriever(context)
+        │
+        ▼ RAGPipeline.retrieve(last_customer_message)
+    RetrieverResult（注入 Agent 推理上下文）
+
+这是推荐的**主力**检索方式：无需 Agent 显式调用工具，
+Guideline 匹配时 Parlant 引擎自动执行检索并将结果注入上下文，
+对话体验更流畅、延迟更低。
+
+使用方式
+--------
+::
+
+    from plan_a.rag_pipeline import RAGPipeline
+    from plan_a.scoped_retriever import make_scoped_retriever
+
+    pipeline = RAGPipeline()
+    await pipeline.initialize()
+
+    retriever_fn = make_scoped_retriever(pipeline)
+
+    guideline = await agent.create_guideline(
+        condition="用户询问知识库相关问题",
+        action="检索知识库后回答",
+    )
+    await guideline.attach_retriever(retriever_fn)
+"""
+from __future__ import annotations
+
+from typing import Awaitable, Callable
+
+import parlant.sdk as p
+
+from plan_a.rag_pipeline import RAGPipeline
+from utils.logging import get_logger
+
+
+logger = get_logger("plan_a.scoped_retriever")
+
+
+def make_scoped_retriever(
+    pipeline: RAGPipeline,
+) -> Callable[[p.RetrieverContext], Awaitable[p.RetrieverResult | None]]:
+    """
+    工厂函数：创建绑定到 ``pipeline`` 的 Parlant Scoped Retriever 函数。
+
+    返回值可直接传入 ``guideline.attach_retriever()``。
+    Guideline 匹配时，Parlant 引擎自动调用该函数，
+    将检索结果注入 Agent 的推理上下文。
+
+    Args:
+        pipeline: :class:`~plan_a.rag_pipeline.RAGPipeline` 实例（懒初始化安全）。
+
+    Returns:
+        符合 ``RetrieverFunction`` 签名的异步函数。
+    """
+
+    async def _scoped_retriever(
+        context: p.RetrieverContext,
+    ) -> p.RetrieverResult | None:
+        """Scoped Retriever：Guideline 匹配时自动检索知识库并注入上下文。"""
+        last_msg = context.interaction.last_customer_message
+        if not last_msg:
+            logger.debug("[ScopedRetriever] 无用户消息，跳过检索")
+            return None
+
+        query = last_msg.content
+        chunks = await pipeline.retrieve(query)
+
+        if not chunks:
+            logger.info("[ScopedRetriever] 未命中相关内容")
+            return None
+
+        # 将文档片段格式化为可读上下文文本，注入 Agent 推理上下文
+        context_text = "\n\n".join(
+            f"[来源: {c.source}]\n{c.content}" for c in chunks
+        )
+
+        logger.info(f"[ScopedRetriever] 返回 {len(chunks)} 个片段")
+        return p.RetrieverResult(
+            data=context_text,
+            metadata={"chunk_count": len(chunks), "query": query},
+        )
+
+    return _scoped_retriever
