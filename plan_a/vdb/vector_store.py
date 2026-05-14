@@ -256,8 +256,8 @@ class VectorStore:
         if not isinstance(nodes_dict, dict):
             return []
 
-        def _sort_key(item: tuple[str, str]) -> tuple[int, str]:
-            key = item[0]
+        def _sort_key(key_node_pair: tuple[str, str]) -> tuple[int, str]:
+            key = key_node_pair[0]
             return (0, f"{int(key):012d}") if key.isdigit() else (1, key)
 
         return [node_id for _, node_id in sorted(nodes_dict.items(), key=_sort_key)]
@@ -367,7 +367,8 @@ class VectorStore:
         dataset_name: str,
     ) -> List[Dict[str, Any]]:
         if isinstance(data, list):
-            if data and isinstance(data[0], dict) and "content" in data[0]:
+            first_item = data[0] if data else None
+            if isinstance(first_item, dict) and "content" in first_item:
                 docs = [self._normalize_doc(item) for item in data]
                 return [doc for doc in docs if doc is not None]
 
