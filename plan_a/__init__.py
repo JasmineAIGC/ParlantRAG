@@ -1,53 +1,26 @@
 """
-plan_a — 基于 Parlant 框架的「极简版」RAG 实现方案。
+plan_a — 基于 Parlant 框架的极简版 RAG 方案。
 
-完整对应 docs/planA.md 中的极简架构，每个架构组件均有独立文件：
+目录结构按 docs/planA.md 的模块关系组织：
 
-    User ←→ Agent[Parlant Agent]   ← 外部入口（examples/05_plan_a_agent.py），不在本模块内
+    User ←→ Agent[Parlant Agent]   ← 外部入口（examples/05_plan_a_agent.py）
                      │
-                GL[Guidelines]          ← guidelines.py
+                GL[Guidelines]      ← plan_a/guidelines/
                ╱               ╲
-    SR[Scoped Retriever]   Tool[RAG Tool]   ← scoped_retriever.py / rag_tool.py
+    SR[Scoped Retriever]   Tool[RAG Tool]   ← plan_a/retrievers/ / plan_a/tools/
                ╲               ╱
-              RAG[RAG 服务]             ← rag_pipeline.py
+              RAG[RAG 服务]        ← plan_a/rag/
                      │
-              VDB[(向量数据库)]         ← vector_store.py
+              VDB[(向量数据库)]    ← plan_a/vdb/
 
-模块文件一览
------------
-- ``config.py``           — 独立配置，从环境变量读取参数
-- ``types.py``            — 共享数据类型（DocChunk）
-- ``embedding.py``        — 文本向量化（Embedder，基于 model_client）
-- ``vector_store.py``     — 向量数据库层（VectorStore / FAISS）
-- ``rag_pipeline.py``     — RAG 检索管道（核心服务，SR 和 Tool 共用）
-- ``scoped_retriever.py`` — Scoped Retriever（自动检索，主力方式）
-- ``rag_tool.py``         — RAG Tool（手动检索，辅助方式）
-- ``guidelines.py``       — Guidelines 配置层（GL）
-
-快速上手
---------
-::
-
-    # 外部 Agent 入口（see examples/05_plan_a_agent.py）
-    import parlant.sdk as p
-    from plan_a import PlanAConfig, RAGPipeline, setup_guidelines
-
-    async def main():
-        pipeline = RAGPipeline(PlanAConfig.from_env())
-        await pipeline.initialize()
-
-        async with p.Server() as server:
-            agent = await server.create_agent(name="...", description="...")
-            await setup_guidelines(agent, pipeline)
+其中 core/ 提供跨模块复用的配置与共享类型。
 """
-from plan_a.config import PlanAConfig
-from plan_a.types import DocChunk
-from plan_a.embedding import Embedder
-from plan_a.vector_store import VectorStore
-from plan_a.rag_pipeline import RAGPipeline
-from plan_a.scoped_retriever import make_scoped_retriever
-from plan_a.rag_tool import make_rag_tool
+from plan_a.core import DocChunk, PlanAConfig
 from plan_a.guidelines import setup_guidelines
+from plan_a.rag import Embedder, RAGPipeline
+from plan_a.retrievers import make_scoped_retriever
+from plan_a.tools import make_rag_tool
+from plan_a.vdb import VectorStore
 
 __all__ = [
     # 配置 & 类型

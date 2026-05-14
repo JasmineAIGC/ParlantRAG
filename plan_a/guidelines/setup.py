@@ -1,5 +1,5 @@
 """
-guidelines.py — Guidelines 配置层（GL）。
+setup.py — Guidelines 配置层（GL）。
 
 对应架构图中的 ``GL[Guidelines]`` 模块。
 
@@ -25,7 +25,7 @@ guidelines.py — Guidelines 配置层（GL）。
 
     # 外部入口脚本（Agent 是外部入口，不在 RAG 模块内）
     import parlant.sdk as p
-    from plan_a.rag_pipeline import RAGPipeline
+    from plan_a.rag import RAGPipeline
     from plan_a.guidelines import setup_guidelines
 
     async with p.Server() as server:
@@ -40,13 +40,13 @@ from typing import Optional, Tuple
 
 import parlant.sdk as p
 
-from plan_a.rag_pipeline import RAGPipeline
-from plan_a.scoped_retriever import make_scoped_retriever
-from plan_a.rag_tool import make_rag_tool
+from plan_a.rag import RAGPipeline
+from plan_a.retrievers import make_scoped_retriever
+from plan_a.tools import make_rag_tool
 from utils.logging import get_logger
 
 
-logger = get_logger("plan_a.guidelines")
+logger = get_logger("plan_a.guidelines.setup")
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ async def setup_guidelines(
         agent:
             已创建的 Parlant Agent 实例（由外部入口脚本创建后传入）。
         pipeline:
-            已初始化的 :class:`~plan_a.rag_pipeline.RAGPipeline` 实例。
+            已初始化的 :class:`~plan_a.rag.pipeline.RAGPipeline` 实例。
         scoped_retriever_condition:
             Scoped Retriever Guideline 的触发条件（``None`` 使用内置默认值）。
         scoped_retriever_action:

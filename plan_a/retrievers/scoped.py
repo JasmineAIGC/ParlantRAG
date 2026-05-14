@@ -1,5 +1,5 @@
 """
-scoped_retriever.py — Scoped Retriever（自动检索）组件。
+scoped.py — Scoped Retriever（自动检索）组件。
 
 对应架构图中的 ``SR[Scoped Retriever]`` 模块。
 
@@ -21,8 +21,8 @@ Guideline 匹配时 Parlant 引擎自动执行检索并将结果注入上下文�
 --------
 ::
 
-    from plan_a.rag_pipeline import RAGPipeline
-    from plan_a.scoped_retriever import make_scoped_retriever
+    from plan_a.rag import RAGPipeline
+    from plan_a.retrievers import make_scoped_retriever
 
     pipeline = RAGPipeline()
     await pipeline.initialize()
@@ -41,11 +41,11 @@ from typing import Awaitable, Callable
 
 import parlant.sdk as p
 
-from plan_a.rag_pipeline import RAGPipeline
+from plan_a.rag import RAGPipeline
 from utils.logging import get_logger
 
 
-logger = get_logger("plan_a.scoped_retriever")
+logger = get_logger("plan_a.retrievers.scoped")
 
 
 def make_scoped_retriever(
@@ -59,7 +59,7 @@ def make_scoped_retriever(
     将检索结果注入 Agent 的推理上下文。
 
     Args:
-        pipeline: :class:`~plan_a.rag_pipeline.RAGPipeline` 实例（懒初始化安全）。
+        pipeline: :class:`~plan_a.rag.pipeline.RAGPipeline` 实例（懒初始化安全）。
 
     Returns:
         符合 ``RetrieverFunction`` 签名的异步函数。

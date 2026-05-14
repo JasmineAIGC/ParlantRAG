@@ -6,7 +6,7 @@ vector_store.py — 向量数据库层（VDB）。
 职责：
   1. 加载预先构建好的 FAISS 索引和文档库（不负责索引构建）
   2. 接受查询向量，执行近邻搜索（FAISS）
-  3. 返回 :class:`~plan_a.types.DocChunk` 列表
+  3. 返回 :class:`~plan_a.core.types.DocChunk` 列表
 
 预期的知识库目录结构
 -------------------
@@ -26,11 +26,11 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from plan_a.types import DocChunk
+from plan_a.core import DocChunk
 from utils.logging import get_logger
 
 
-logger = get_logger("plan_a.vector_store")
+logger = get_logger("plan_a.vdb.vector_store")
 
 
 class VectorStore:
@@ -134,7 +134,7 @@ class VectorStore:
             top_k:        最多返回的片段数。
 
         Returns:
-            按相似度降序排列的 :class:`~plan_a.types.DocChunk` 列表。
+            按相似度降序排列的 :class:`~plan_a.core.types.DocChunk` 列表。
 
         Raises:
             RuntimeError: 若 ``initialize()`` 尚未调用。

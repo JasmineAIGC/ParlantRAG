@@ -17,7 +17,7 @@ from model_client import OpenAILikeEmbedding
 from utils.logging import get_logger
 
 
-logger = get_logger("plan_a.embedding")
+logger = get_logger("plan_a.rag.embedding")
 
 
 class Embedder:

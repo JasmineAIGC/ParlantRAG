@@ -1,5 +1,5 @@
 """
-rag_tool.py — RAG Tool（手动检索工具）组件。
+rag.py — RAG Tool（手动检索工具）组件。
 
 对应架构图中的 ``Tool[RAG Tool]`` 模块。
 
@@ -20,8 +20,8 @@ rag_tool.py — RAG Tool（手动检索工具）组件。
 --------
 ::
 
-    from plan_a.rag_pipeline import RAGPipeline
-    from plan_a.rag_tool import make_rag_tool
+    from plan_a.rag import RAGPipeline
+    from plan_a.tools import make_rag_tool
 
     pipeline = RAGPipeline()
     search_knowledge = make_rag_tool(pipeline)
@@ -36,11 +36,11 @@ from __future__ import annotations
 
 import parlant.sdk as p
 
-from plan_a.rag_pipeline import RAGPipeline
+from plan_a.rag import RAGPipeline
 from utils.logging import get_logger
 
 
-logger = get_logger("plan_a.rag_tool")
+logger = get_logger("plan_a.tools.rag")
 
 
 def make_rag_tool(pipeline: RAGPipeline):
@@ -51,7 +51,7 @@ def make_rag_tool(pipeline: RAGPipeline):
     可直接传入 ``agent.create_guideline(tools=[...])``。
 
     Args:
-        pipeline: :class:`~plan_a.rag_pipeline.RAGPipeline` 实例（懒初始化安全）。
+        pipeline: :class:`~plan_a.rag.pipeline.RAGPipeline` 实例（懒初始化安全）。
 
     Returns:
         ``parlant.sdk.ToolEntry`` — 已注册的 Parlant Tool 对象。

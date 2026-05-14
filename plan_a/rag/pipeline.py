@@ -1,5 +1,5 @@
 """
-rag_pipeline.py — RAG 检索管道（核心服务层）。
+pipeline.py — RAG 检索管道（核心服务层）。
 
 对应架构图中的 ``RAG[RAG 服务/Pipeline]`` 模块。
 
@@ -26,14 +26,13 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from plan_a.config import PlanAConfig
-from plan_a.types import DocChunk
-from plan_a.embedding import Embedder
-from plan_a.vector_store import VectorStore
+from plan_a.core import DocChunk, PlanAConfig
+from plan_a.rag.embedding import Embedder
+from plan_a.vdb import VectorStore
 from utils.logging import get_logger
 
 
-logger = get_logger("plan_a.rag_pipeline")
+logger = get_logger("plan_a.rag.pipeline")
 
 
 class RAGPipeline:
@@ -41,8 +40,8 @@ class RAGPipeline:
     RAG 检索管道。
 
     初始化后即可通过 :meth:`retrieve` 对外提供检索服务。
-    Scoped Retriever（:mod:`plan_a.scoped_retriever`）和
-    RAG Tool（:mod:`plan_a.rag_tool`）均使用同一 Pipeline 实例。
+    Scoped Retriever（:mod:`plan_a.retrievers.scoped`）和
+    RAG Tool（:mod:`plan_a.tools.rag`）均使用同一 Pipeline 实例。
 
     Examples
     --------
@@ -66,8 +65,8 @@ class RAGPipeline:
         """
         Args:
             config:        RAG 配置；``None`` 时从环境变量自动加载。
-            embedder:      Embedding 组件；``None`` 时使用默认 :class:`~plan_a.embedding.Embedder`。
-            vector_store:  VectorStore 组件；``None`` 时使用默认 :class:`~plan_a.vector_store.VectorStore`。
+            embedder:      Embedding 组件；``None`` 时使用默认 :class:`~plan_a.rag.embedding.Embedder`。
+            vector_store:  VectorStore 组件；``None`` 时使用默认 :class:`~plan_a.vdb.vector_store.VectorStore`。
         """
         self._config = config or PlanAConfig.from_env()
         self._embedder = embedder or Embedder()
@@ -112,7 +111,7 @@ class RAGPipeline:
             query: 用户查询文本。
 
         Returns:
-            按相似度降序排列的 :class:`~plan_a.types.DocChunk` 列表；
+            按相似度降序排列的 :class:`~plan_a.core.types.DocChunk` 列表；
             空列表表示知识库中未找到相关内容。
         """
         if not self._initialized:
