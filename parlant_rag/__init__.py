@@ -1,56 +1,37 @@
 """
-parlant_rag — 基于 Parlant 框架 + model_client 的完整 RAG 系统。
+parlant_rag — 基于 model_client 的 RAG 模块。
 
-架构设计：
-  - 使用 Parlant 的接口抽象层（Embedder, SchematicGenerator, StreamingTextGenerator）
-  - 使用 model_client 的实际实现（OpenAILikeEmbedding, LLMClient）
-  - 通过适配器层桥接两者
+核心功能：
+  - 文档检索：使用 model_client OpenAILikeEmbedding + FAISS
+  - 检索评估：使用 model_client LLMClient
+  - RAG 问答：整合检索+评估+回答
 
-核心组件：
-  - adapters: Parlant 接口与 model_client 的适配器
-  - config: RAG 配置管理
-  - retriever: 文档检索器（支持 FAISS / Parlant VectorDatabase）
-  - evaluator: 检索结果评估器
-  - rag: RAG 主类
+文件结构：
+  - config.py     : 配置管理
+  - retriever.py  : 检索器
+  - evaluator.py  : 评估器
+  - rag.py        : RAG 主类
 
-Parlant 框架特性利用：
-  - NLPService: 统一的 NLP 服务接口
-  - Embedder: 文本嵌入接口
-  - SchematicGenerator: 结构化输出生成器
-  - StreamingTextGenerator: 流式文本生成器
-  - VectorDatabase: 向量数据库接口（可选）
-
-完整 RAG 流程：
-  1. 文档加载与向量化（使用 Parlant Embedder）
-  2. 向量检索（支持 FAISS / Parlant VectorDatabase）
-  3. 检索结果评估（使用 Parlant SchematicGenerator）
-  4. 回答生成（使用 Parlant StreamingTextGenerator）
+日志模块位于 utils/logging.py
 
 使用方式：
-    from parlant_rag import RAG, RAGConfig
+    from parlant_rag import RAG
     
-    # 方式1：纯 model_client 模式（推荐）
-    config = RAGConfig.from_env()
-    rag = RAG(config=config)
+    # 创建 RAG 实例（自动从 .env 加载配置）
+    rag = RAG()
     
-    # 添加文档
-    await rag.add_documents([
-        {"content": "文档内容...", "source": "doc1.txt"}
-    ])
-    
-    # 查询
+    # 执行 RAG 查询
     result = await rag.query("你的问题")
+    
+    # 获取结果
+    print(result.answer)
+    print(result.sources)
 """
 from parlant_rag.config import RAGConfig
 from parlant_rag.retriever import Retriever, RetrievalResult, RetrievedChunk
 from parlant_rag.evaluator import Evaluator, EvaluationResult
 from parlant_rag.rag import RAG, RAGResult
-from parlant_rag.adapters import (
-    ModelClientEmbedder,
-    ModelClientStreamingTextGenerator,
-    ModelClientSchematicGenerator,
-    ModelClientNLPService,
-)
+from utils.logging import setup_logging, get_logger
 
 __all__ = [
     "RAGConfig",
@@ -61,8 +42,6 @@ __all__ = [
     "EvaluationResult",
     "RAG",
     "RAGResult",
-    "ModelClientEmbedder",
-    "ModelClientStreamingTextGenerator",
-    "ModelClientSchematicGenerator",
-    "ModelClientNLPService",
+    "setup_logging",
+    "get_logger",
 ]
