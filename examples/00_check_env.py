@@ -21,13 +21,17 @@ check_env.py — 验证 .env 配置的所有 API 和本地模型是否真正可�
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
+import json
 import os
 import sys
 import time
+from pathlib import Path
 
-# 确保从任意目录运行时都能找到 parlant_rag（无需设置 PYTHONPATH）
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+# 确保从任意目录运行时都能找到项目根包（无需设置 PYTHONPATH）
+sys.path.insert(0, str(_REPO_ROOT))
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -36,7 +40,7 @@ from model_client._utils import first_env
 from utils.logging import setup_logging
 
 # 设置日志（输出到终端和文件）
-logger = setup_logging("check_env", level="INFO", log_dir="../logs")
+logger = setup_logging("check_env", level="INFO", log_dir=str(_REPO_ROOT / "logs"))
 
 # ---------------------------------------------------------------------------
 # 辅助
@@ -173,9 +177,11 @@ async def _check_local_embedding() -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 async def main() -> int:
-    print("=" * 60)
-    print("  ParlantRAG — .env 配置可用性检测")
-    print("=" * 60)
+    args = _parse_args()
+    if args.output_format == "text":
+        print("=" * 60)
+        print("  ParlantRAG — .env 配置可用性检测")
+        print("=" * 60)
     logger.info("[CheckEnv] 开始环境检测")
 
     checks = [
@@ -186,48 +192,85 @@ async def main() -> int:
 
     results: list[tuple[str, bool, str]] = []
     for name, coro in checks:
-        _header(f"检测：{name}")
+        if args.output_format == "text":
+            _header(f"检测：{name}")
         ok, detail = await coro
         skipped = "跳过" in detail
         if skipped:
-            print(f"  {_SKIP}  {detail}")
+            if args.output_format == "text":
+                print(f"  {_SKIP}  {detail}")
             results.append((name, True, detail))
         else:
-            _result(name, ok, detail)
+            if args.output_format == "text":
+                _result(name, ok, detail)
             results.append((name, ok, detail))
 
     # 汇总
-    print(f"\n{'='*60}")
-    print("  检测汇总")
-    print(f"{'='*60}")
+    if args.output_format == "text":
+        print(f"\n{'='*60}")
+        print("  检测汇总")
+        print(f"{'='*60}")
     failed = []
     for name, ok, detail in results:
         skipped = "跳过" in detail
         if skipped:
-            print(f"  {_SKIP}  {name:<20}  （未配置，已跳过）")
+            if args.output_format == "text":
+                print(f"  {_SKIP}  {name:<20}  （未配置，已跳过）")
         else:
             mark = _PASS if ok else _FAIL
             status = "通过" if ok else "失败"
-            print(f"  {mark}  {name:<20}  {status}")
+            if args.output_format == "text":
+                print(f"  {mark}  {name:<20}  {status}")
             if not ok:
                 failed.append(name)
 
-    print()
+    if args.output_format == "text":
+        print()
     if failed:
         logger.error(f"[CheckEnv] 检测失败: {', '.join(failed)}")
-        print(f"❌ 以下项目检测失败：{', '.join(failed)}")
-        print("   请检查 .env 配置及对应服务是否已启动。")
+        if args.output_format == "text":
+            print(f"❌ 以下项目检测失败：{', '.join(failed)}")
+            print("   请检查 .env 配置及对应服务是否已启动。")
+        if args.output_format == "json":
+            print(json.dumps({
+                "script": "00_check_env.py",
+                "ok": False,
+                "failed": failed,
+                "results": [{"name": n, "ok": ok, "detail": d} for n, ok, d in results],
+            }, ensure_ascii=False, indent=2))
         return 1
     else:
         configured = [n for n, _, d in results if "跳过" not in d]
         if configured:
             logger.info(f"[CheckEnv] 全部检测通过（{len(configured)} 项）")
-            print(f"✅ 全部已配置项目检测通过（{len(configured)} 项）。")
+            if args.output_format == "text":
+                print(f"✅ 全部已配置项目检测通过（{len(configured)} 项）。")
+            if args.output_format == "json":
+                print(json.dumps({
+                    "script": "00_check_env.py",
+                    "ok": True,
+                    "configured_count": len(configured),
+                    "results": [{"name": n, "ok": ok, "detail": d} for n, ok, d in results],
+                }, ensure_ascii=False, indent=2))
         else:
             logger.warning("[CheckEnv] 未检测到任何已配置项")
-            print("⚠️  .env 中未检测到任何已配置项（LLM / Embedding），请检查配置。")
+            if args.output_format == "text":
+                print("⚠️  .env 中未检测到任何已配置项（LLM / Embedding），请检查配置。")
+            if args.output_format == "json":
+                print(json.dumps({
+                    "script": "00_check_env.py",
+                    "ok": False,
+                    "configured_count": 0,
+                    "results": [{"name": n, "ok": ok, "detail": d} for n, ok, d in results],
+                }, ensure_ascii=False, indent=2))
             return 1
     return 0
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="环境连通性检查")
+    parser.add_argument("--output-format", choices=["text", "json"], default="text", help="输出格式")
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
