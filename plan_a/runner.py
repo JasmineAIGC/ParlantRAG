@@ -72,7 +72,7 @@ async def generate_answer(llm: "LLMClient", question: str, chunks: list[DocChunk
     根据检索到的文档片段用 LLM 生成回答。
 
     Args:
-        llm:      :class:`~model_client.api.llm.LLMClient` 实例。
+        llm:      :class:`~model_client.api.llm.LLMClient` 实例（运行时必须可用）。
         question: 用户问题。
         chunks:   RAGPipeline 返回的文档片段列表。
 
