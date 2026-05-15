@@ -12,7 +12,9 @@
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -29,7 +31,13 @@ from utils.logging import setup_logging
 logger = setup_logging("load_knowledge_base", level="INFO", log_dir=str(_REPO_ROOT / "logs"))
 
 
-async def main() -> None:
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Plan A 知识库加载检查")
+    parser.add_argument("--output-format", choices=["text", "json"], default="text", help="输出格式")
+    return parser.parse_args()
+
+
+async def main(args: argparse.Namespace) -> None:
     config = PlanAConfig.from_env()
     persist_dir = config.knowledge_base_path
 
@@ -43,6 +51,13 @@ async def main() -> None:
         print(f"\n❌ 知识库目录不存在：{persist_dir}")
         print("   请先构建知识库或检查 .env 中 KNOWLEDGE_PERSIST_DIR 的配置。")
         logger.error("[LoadKB] 知识库目录不存在: %s", persist_dir)
+        if args.output_format == "json":
+            print(json.dumps({
+                "script": "01_load_knowledge_base.py",
+                "ok": False,
+                "knowledge_base_path": persist_dir,
+                "error": "知识库目录不存在",
+            }, ensure_ascii=False, indent=2))
         return
 
     print(f"\n⏳ 正在初始化 RAG 管道（加载 FAISS 索引）...")
@@ -54,12 +69,25 @@ async def main() -> None:
     except (FileNotFoundError, ImportError, RuntimeError) as exc:
         print(f"\n❌ 知识库加载失败：{exc}")
         logger.error("[LoadKB] 知识库加载失败: %s", exc)
+        if args.output_format == "json":
+            print(json.dumps({
+                "script": "01_load_knowledge_base.py",
+                "ok": False,
+                "knowledge_base_path": persist_dir,
+                "error": str(exc),
+            }, ensure_ascii=False, indent=2))
         return
 
     print(f"\n{'='*60}")
     print("✅  验证通过，知识库可正常使用")
     print(f"{'='*60}")
+    if args.output_format == "json":
+        print(json.dumps({
+            "script": "01_load_knowledge_base.py",
+            "ok": True,
+            "knowledge_base_path": persist_dir,
+        }, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(_parse_args()))

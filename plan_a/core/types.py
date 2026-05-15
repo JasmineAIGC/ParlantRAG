@@ -6,7 +6,7 @@ types.py — Plan A 模块共享数据类型。
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 
 _SCORE_PRECISION = 4
@@ -34,13 +34,54 @@ class DocChunk:
     metadata: Dict[str, Any] = field(default_factory=dict)
     """可选的附加元数据（来自文档库）。"""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, include_metadata: bool = False) -> Dict[str, Any]:
         """序列化为字典，兼容 Parlant Tool/Retriever 返回格式。"""
-        return {
+        data: Dict[str, Any] = {
             "content": self.content,
             "source": self.source,
             "score": round(self.score, _SCORE_PRECISION),
         }
+        if include_metadata:
+            data["metadata"] = self.metadata
+        return data
 
     def __repr__(self) -> str:
         return f"DocChunk(source={self.source!r}, score={self.score:.3f})"
+
+
+@dataclass
+class RetrievalRequest:
+    """标准化检索输入。"""
+
+    query: str
+    top_k: Optional[int] = None
+    include_metadata: bool = False
+
+    def normalized_query(self) -> str:
+        return self.query.strip()
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "query": self.normalized_query(),
+            "top_k": self.top_k,
+            "include_metadata": self.include_metadata,
+        }
+
+
+@dataclass
+class RetrievalResponse:
+    """标准化检索输出。"""
+
+    query: str
+    chunks: List[DocChunk]
+    top_k: int
+    took_ms: int
+
+    def to_dict(self, include_metadata: bool = False) -> Dict[str, Any]:
+        return {
+            "query": self.query,
+            "top_k": self.top_k,
+            "chunk_count": len(self.chunks),
+            "took_ms": self.took_ms,
+            "chunks": [c.to_dict(include_metadata=include_metadata) for c in self.chunks],
+        }

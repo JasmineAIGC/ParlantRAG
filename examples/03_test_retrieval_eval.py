@@ -14,9 +14,9 @@
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +31,7 @@ load_dotenv()
 
 from plan_a import PlanAConfig, RAGPipeline
 from plan_a.core.types import DocChunk
+from plan_a.core import RetrievalRequest
 from model_client.api.llm import LLMClient
 from utils.logging import setup_logging
 
@@ -39,7 +40,7 @@ logger = setup_logging("test_retrieval_eval", level="INFO", log_dir=str(_REPO_RO
 _HOTPOTQA_PATH = _REPO_ROOT / "knowledge_base" / "hotpotqa.json"
 
 
-def _load_test_queries(limit: int = 2) -> list[str]:
+def _load_test_queries(limit: int = 2, seed: int = 42) -> list[str]:
     with _HOTPOTQA_PATH.open("r", encoding="utf-8") as f:
         samples = json.load(f)
     questions = [
@@ -49,7 +50,7 @@ def _load_test_queries(limit: int = 2) -> list[str]:
     ]
     if not questions:
         raise ValueError(f"未从数据集读取到可用问题：{_HOTPOTQA_PATH}")
-    return Random(42).sample(questions, min(limit, len(questions)))
+    return Random(seed).sample(questions, min(limit, len(questions)))
 
 
 @dataclass
@@ -122,49 +123,85 @@ async def _evaluate(llm: LLMClient, question: str, chunks: List[DocChunk]) -> Ev
         )
 
 
-async def main() -> None:
-    print("=" * 60)
-    print("📊  检索 + LLM 评估测试")
-    print("=" * 60)
-    print(f"  测试问题来源：{_HOTPOTQA_PATH}")
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Plan A 检索 + LLM 评估测试")
+    parser.add_argument("--limit", type=int, default=2, help="测试问题数量")
+    parser.add_argument("--seed", type=int, default=42, help="抽样随机种子")
+    parser.add_argument("--output-format", choices=["text", "json"], default="text", help="输出格式")
+    return parser.parse_args()
+
+
+async def main(args: argparse.Namespace) -> None:
+    if args.output_format == "text":
+        print("=" * 60)
+        print("📊  检索 + LLM 评估测试")
+        print("=" * 60)
+        print(f"  测试问题来源：{_HOTPOTQA_PATH}")
     logger.info("[EvalTest] 开始检索评估测试")
 
     config = PlanAConfig.from_env()
     pipeline = RAGPipeline(config)
     llm = LLMClient()
 
-    print("\n⏳ 初始化 RAG 管道...")
+    if args.output_format == "text":
+        print("\n⏳ 初始化 RAG 管道...")
     await pipeline.initialize()
-    print("✅ RAG 管道就绪\n")
+    if args.output_format == "text":
+        print("✅ RAG 管道就绪\n")
 
-    test_queries = _load_test_queries()
+    test_queries = _load_test_queries(limit=args.limit, seed=args.seed)
+    output_rows: list[dict] = []
     for query in test_queries:
-        print(f"{'─'*60}")
-        print(f"  问：{query}")
+        if args.output_format == "text":
+            print(f"{'─'*60}")
+            print(f"  问：{query}")
         logger.info("[EvalTest] 检索  query=%r", query)
 
         # 检索
-        chunks = await pipeline.retrieve(query)
-        print(f"  ✓ 命中 {len(chunks)} 个片段")
+        retrieval_response = await pipeline.retrieve_standard(RetrievalRequest(query=query))
+        chunks = retrieval_response.chunks
+        if args.output_format == "text":
+            print(f"  ✓ 命中 {len(chunks)} 个片段")
 
         # LLM 评估
-        print("  ⏳ LLM 评估中...")
+        if args.output_format == "text":
+            print("  ⏳ LLM 评估中...")
         result = await _evaluate(llm, query, chunks)
 
-        print(f"\n  📊 评估结果：")
-        print(f"     结论：{result.verdict}")
-        print(f"     相关性：{result.relevance:.2f}  覆盖度：{result.coverage:.2f}  置信度：{result.confidence:.2f}")
-        print(f"     说明：{result.conclusion}")
-        print(f"     建议：{result.action_hint}")
+        row = {
+            "retrieval": retrieval_response.to_dict(include_metadata=False),
+            "evaluation": {
+                "verdict": result.verdict,
+                "relevance": result.relevance,
+                "coverage": result.coverage,
+                "confidence": result.confidence,
+                "conclusion": result.conclusion,
+                "action_hint": result.action_hint,
+            },
+        }
+        output_rows.append(row)
+        if args.output_format == "text":
+            print(f"\n  📊 评估结果：")
+            print(f"     结论：{result.verdict}")
+            print(f"     相关性：{result.relevance:.2f}  覆盖度：{result.coverage:.2f}  置信度：{result.confidence:.2f}")
+            print(f"     说明：{result.conclusion}")
+            print(f"     建议：{result.action_hint}")
         logger.info(
             "[EvalTest] verdict=%s  relevance=%.2f  coverage=%.2f  confidence=%.2f",
             result.verdict, result.relevance, result.coverage, result.confidence
         )
 
-    print(f"\n{'='*60}")
-    print("✅  评估测试完成")
-    print(f"{'='*60}")
+    if args.output_format == "json":
+        print(json.dumps({
+            "script": "03_test_retrieval_eval.py",
+            "request": {"limit": args.limit, "seed": args.seed},
+            "responses": output_rows,
+        }, ensure_ascii=False, indent=2))
+    else:
+        print(f"\n{'='*60}")
+        print("✅  评估测试完成")
+        print(f"{'='*60}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(_parse_args()))

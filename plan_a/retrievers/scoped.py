@@ -41,6 +41,7 @@ from typing import Awaitable, Callable
 
 import parlant.sdk as p
 
+from plan_a.core import RetrievalRequest
 from plan_a.rag import RAGPipeline
 from utils.logging import get_logger
 
@@ -74,8 +75,9 @@ def make_scoped_retriever(
             logger.debug("[ScopedRetriever] 无用户消息，跳过检索")
             return None
 
-        query = last_msg.content
-        chunks = await pipeline.retrieve(query)
+        request = RetrievalRequest(query=last_msg.content)
+        response = await pipeline.retrieve_standard(request)
+        chunks = response.chunks
 
         if not chunks:
             logger.info("[ScopedRetriever] 未命中相关内容")
@@ -89,7 +91,10 @@ def make_scoped_retriever(
         logger.info(f"[ScopedRetriever] 返回 {len(chunks)} 个片段")
         return p.RetrieverResult(
             data=context_text,
-            metadata={"chunk_count": len(chunks), "query": query},
+            metadata={
+                "request": request.to_dict(),
+                "response": response.to_dict(include_metadata=False),
+            },
         )
 
     return _scoped_retriever

@@ -21,7 +21,9 @@ check_env.py — 验证 .env 配置的所有 API 和本地模型是否真正可�
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
+import json
 import os
 import sys
 import time
@@ -175,6 +177,7 @@ async def _check_local_embedding() -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 async def main() -> int:
+    args = _parse_args()
     print("=" * 60)
     print("  ParlantRAG — .env 配置可用性检测")
     print("=" * 60)
@@ -219,17 +222,44 @@ async def main() -> int:
         logger.error(f"[CheckEnv] 检测失败: {', '.join(failed)}")
         print(f"❌ 以下项目检测失败：{', '.join(failed)}")
         print("   请检查 .env 配置及对应服务是否已启动。")
+        if args.output_format == "json":
+            print(json.dumps({
+                "script": "00_check_env.py",
+                "ok": False,
+                "failed": failed,
+                "results": [{"name": n, "ok": ok, "detail": d} for n, ok, d in results],
+            }, ensure_ascii=False, indent=2))
         return 1
     else:
         configured = [n for n, _, d in results if "跳过" not in d]
         if configured:
             logger.info(f"[CheckEnv] 全部检测通过（{len(configured)} 项）")
             print(f"✅ 全部已配置项目检测通过（{len(configured)} 项）。")
+            if args.output_format == "json":
+                print(json.dumps({
+                    "script": "00_check_env.py",
+                    "ok": True,
+                    "configured_count": len(configured),
+                    "results": [{"name": n, "ok": ok, "detail": d} for n, ok, d in results],
+                }, ensure_ascii=False, indent=2))
         else:
             logger.warning("[CheckEnv] 未检测到任何已配置项")
             print("⚠️  .env 中未检测到任何已配置项（LLM / Embedding），请检查配置。")
+            if args.output_format == "json":
+                print(json.dumps({
+                    "script": "00_check_env.py",
+                    "ok": False,
+                    "configured_count": 0,
+                    "results": [{"name": n, "ok": ok, "detail": d} for n, ok, d in results],
+                }, ensure_ascii=False, indent=2))
             return 1
     return 0
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="环境连通性检查")
+    parser.add_argument("--output-format", choices=["text", "json"], default="text", help="输出格式")
+    return parser.parse_args()
 
 
 if __name__ == "__main__":

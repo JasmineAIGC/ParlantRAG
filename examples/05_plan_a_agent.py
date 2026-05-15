@@ -34,6 +34,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import os
@@ -50,6 +51,7 @@ load_dotenv()
 from model_client._utils import bridge_parlant_litellm_env
 from plan_a import PlanAConfig, RAGPipeline
 from plan_a.core.types import DocChunk
+from plan_a.core import RetrievalRequest
 from model_client.api.llm import LLMClient
 from utils.logging import setup_logging
 
@@ -59,7 +61,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _HOTPOTQA_PATH = _REPO_ROOT / "knowledge_base" / "hotpotqa.json"
 
 
-def _load_test_queries(limit: int = 3) -> list[str]:
+def _load_test_queries(limit: int = 3, seed: int = 0) -> list[str]:
     with _HOTPOTQA_PATH.open("r", encoding="utf-8") as f:
         samples = json.load(f)
 
@@ -75,7 +77,7 @@ def _load_test_queries(limit: int = 3) -> list[str]:
         return questions
 
     # 固定 seed，保证示例输出可复现，便于对比不同改动的检索效果。
-    return Random(0).sample(questions, limit)
+    return Random(seed).sample(questions, limit)
 
 
 async def _answer(llm: LLMClient, question: str, chunks: list[DocChunk]) -> str:
@@ -99,56 +101,83 @@ async def _answer(llm: LLMClient, question: str, chunks: list[DocChunk]) -> str:
         return f"LLM 调用失败，无法生成回答：{exc}"
 
 
-async def main() -> None:
-    print("=" * 60)
-    print("🤖  Plan A — 独立 RAG 问答 + Parlant Agent 集成演示")
-    print("    检索：plan_a.RAGPipeline  |  回答：model_client.LLMClient")
-    print("=" * 60)
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Plan A 完整演示")
+    parser.add_argument("--limit", type=int, default=3, help="测试问题数量")
+    parser.add_argument("--seed", type=int, default=0, help="抽样随机种子")
+    parser.add_argument("--output-format", choices=["text", "json"], default="text", help="输出格式")
+    return parser.parse_args()
+
+
+async def main(args: argparse.Namespace) -> None:
+    if args.output_format == "text":
+        print("=" * 60)
+        print("🤖  Plan A — 独立 RAG 问答 + Parlant Agent 集成演示")
+        print("    检索：plan_a.RAGPipeline  |  回答：model_client.LLMClient")
+        print("=" * 60)
 
     # ------------------------------------------------------------------
     # 1. 初始化 RAG 管道（独立于 Agent，可在 Agent 启动前完成）
     # ------------------------------------------------------------------
-    print("\n⏳ 初始化 RAG 管道（加载 Embedding + FAISS 索引）...")
+    if args.output_format == "text":
+        print("\n⏳ 初始化 RAG 管道（加载 Embedding + FAISS 索引）...")
     config = PlanAConfig.from_env()
     pipeline = RAGPipeline(config)
     llm = LLMClient()
     await pipeline.initialize()
-    print("✅ RAG 管道初始化完成")
+    if args.output_format == "text":
+        print("✅ RAG 管道初始化完成")
 
     # ------------------------------------------------------------------
     # 2. 快速验证 RAG 管道的独立检索 + LLM 问答能力（无需 Agent）
     # ------------------------------------------------------------------
-    print(f"\n{'─' * 60}")
-    print("🔍  RAG 问答演示（无需 Parlant Server）")
-    print(f"{'─' * 60}")
-    test_queries = _load_test_queries()
-    print(f"📚 测试问题来源：{_HOTPOTQA_PATH}\n")
+    if args.output_format == "text":
+        print(f"\n{'─' * 60}")
+        print("🔍  RAG 问答演示（无需 Parlant Server）")
+        print(f"{'─' * 60}")
+    test_queries = _load_test_queries(limit=args.limit, seed=args.seed)
+    if args.output_format == "text":
+        print(f"📚 测试问题来源：{_HOTPOTQA_PATH}\n")
+    qa_rows: list[dict] = []
     for query in test_queries:
-        print(f"{'─'*60}")
-        print(f"  问：{query}")
+        if args.output_format == "text":
+            print(f"{'─'*60}")
+            print(f"  问：{query}")
         logger.info("[PlanAAgent] query=%r", query)
 
-        chunks = await pipeline.retrieve(query)
+        retrieval_response = await pipeline.retrieve_standard(RetrievalRequest(query=query))
+        chunks = retrieval_response.chunks
         if chunks:
             top = chunks[0]
             # 优先使用 metadata 中的标题；source 在部分格式下为 UUID
             title = top.metadata.get("title") or top.source
-            print(f"  ✓ 命中 {len(chunks)} 片段  最相关: {title} ({top.score:.3f})")
+            if args.output_format == "text":
+                print(f"  ✓ 命中 {len(chunks)} 片段  最相关: {title} ({top.score:.3f})")
         else:
-            print("  ⚠️  未命中（知识库为空或内容不相关）")
+            if args.output_format == "text":
+                print("  ⚠️  未命中（知识库为空或内容不相关）")
 
-        print("  ⏳ LLM 生成回答中...")
+        if args.output_format == "text":
+            print("  ⏳ LLM 生成回答中...")
         answer = await _answer(llm, query, chunks)
-        print(f"\n  💬 回答：")
-        print(f"     {answer.strip()[:300]}")
+        qa_rows.append({
+            "retrieval": retrieval_response.to_dict(include_metadata=False),
+            "answer": answer.strip(),
+        })
+        if args.output_format == "text":
+            print(f"\n  💬 回答：")
+            print(f"     {answer.strip()[:300]}")
         logger.info("[PlanAAgent] 问答完成  chunk_count=%d", len(chunks))
 
     # ------------------------------------------------------------------
     # 3. Parlant RAG 模块验证（无需 Server / UI，代码直接调用）
     # ------------------------------------------------------------------
-    print(f"\n{'─' * 60}")
-    print("🔧  Parlant RAG 模块验证（代码直接调用，无需 Server）")
-    print(f"{'─' * 60}")
+    if args.output_format == "text":
+        print(f"\n{'─' * 60}")
+        print("🔧  Parlant RAG 模块验证（代码直接调用，无需 Server）")
+        print(f"{'─' * 60}")
+    parlant_rows: list[dict] = []
+    parlant_status = "ok"
 
     try:
         import parlant.sdk as p
@@ -165,52 +194,76 @@ async def main() -> None:
 
         # ─ 创建 RAG Tool（无需运行 Agent / Server）─
         search_knowledge = make_rag_tool(pipeline)
-        print("✅ RAG Tool 创建成功（@p.tool 注册通过）")
+        if args.output_format == "text":
+            print("✅ RAG Tool 创建成功（@p.tool 注册通过）")
 
         # ─ 创建 Scoped Retriever（无需运行 Agent / Server）─
         retriever_fn = make_scoped_retriever(pipeline)
-        print("✅ Scoped Retriever 创建成功")
+        if args.output_format == "text":
+            print("✅ Scoped Retriever 创建成功")
 
         # ─ 直接调用 RAG 管道验证工具逻辑 ─
-        print("\n⏳ 直接调用 RAG 工具函数验证检索效果...")
+        if args.output_format == "text":
+            print("\n⏳ 直接调用 RAG 工具函数验证检索效果...")
         for query in test_queries[:2]:
-            print(f"\n{'─'*60}")
-            print(f"  问：{query}")
+            if args.output_format == "text":
+                print(f"\n{'─'*60}")
+                print(f"  问：{query}")
             logger.info("[Entry] RAG Tool 直接调用  query=%r", query)
 
-            chunks = await pipeline.retrieve(query)
+            tool_response = await pipeline.retrieve_standard(RetrievalRequest(query=query))
+            chunks = tool_response.chunks
+            parlant_rows.append(tool_response.to_dict(include_metadata=False))
             if chunks:
                 top = chunks[0]
                 title = top.metadata.get("title") or top.source
-                print(f"  ✓ 工具命中 {len(chunks)} 片段  最相关: {title} ({top.score:.3f})")
+                if args.output_format == "text":
+                    print(f"  ✓ 工具命中 {len(chunks)} 片段  最相关: {title} ({top.score:.3f})")
             else:
-                print("  ⚠️  工具未命中（知识库为空或内容不相关）")
+                if args.output_format == "text":
+                    print("  ⚠️  工具未命中（知识库为空或内容不相关）")
 
             logger.info("[Entry] RAG Tool 调用完成  chunk_count=%d", len(chunks))
 
         logger.info("[Entry] Parlant RAG 模块验证完成")
-        print("\n✅ Parlant RAG 模块验证通过（无需 UI / Server）")
+        if args.output_format == "text":
+            print("\n✅ Parlant RAG 模块验证通过（无需 UI / Server）")
 
     except ModuleNotFoundError as exc:
         if getattr(exc, "name", None) == "torch" or "No module named 'torch'" in str(exc):
-            print(
-                "\n⚠️  Parlant LiteLLM 适配器依赖 `torch`，当前环境缺失。\n"
-                "   请先安装 torch（例如 `pip install torch`），再重试。"
-            )
+            parlant_status = "missing_torch"
+            if args.output_format == "text":
+                print(
+                    "\n⚠️  Parlant LiteLLM 适配器依赖 `torch`，当前环境缺失。\n"
+                    "   请先安装 torch（例如 `pip install torch`），再重试。"
+                )
             logger.warning("[Entry] Parlant 启动失败：缺少 torch 依赖")
         else:
             raise
     except ImportError:
-        print(
-            "\n⚠️  未安装 parlant（pip install parlant），跳过 RAG 模块验证。\n"
-            "   plan_a/ RAG 管道的独立检索功能已正常演示（见上方输出）。"
-        )
+        parlant_status = "missing_parlant"
+        if args.output_format == "text":
+            print(
+                "\n⚠️  未安装 parlant（pip install parlant），跳过 RAG 模块验证。\n"
+                "   plan_a/ RAG 管道的独立检索功能已正常演示（见上方输出）。"
+            )
         logger.warning("[Entry] parlant 包未安装，跳过模块验证")
 
-    print(f"\n{'=' * 60}")
-    print("✅  演示结束")
-    print(f"{'=' * 60}")
+    if args.output_format == "json":
+        print(json.dumps({
+            "script": "05_plan_a_agent.py",
+            "request": {"limit": args.limit, "seed": args.seed},
+            "qa": qa_rows,
+            "parlant": {
+                "status": parlant_status,
+                "responses": parlant_rows,
+            },
+        }, ensure_ascii=False, indent=2))
+    else:
+        print(f"\n{'=' * 60}")
+        print("✅  演示结束")
+        print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(_parse_args()))

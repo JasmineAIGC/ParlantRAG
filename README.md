@@ -55,13 +55,16 @@ python examples/00_check_env.py
 python examples/01_load_knowledge_base.py
 
 # 检索测试
-python examples/02_test_retrieval.py
+python examples/02_test_retrieval.py --limit 3 --seed 42
 
 # 检索 + LLM 评估
-python examples/03_test_retrieval_eval.py
+python examples/03_test_retrieval_eval.py --limit 2 --seed 42
 
 # 完整演示：独立 RAG 问答 + Parlant Agent 集成
-python examples/05_plan_a_agent.py
+python examples/05_plan_a_agent.py --limit 3 --seed 0
+
+# 所有 examples 均支持结构化输出
+python examples/02_test_retrieval.py --output-format json
 ```
 
 ## knowledge_base 说明

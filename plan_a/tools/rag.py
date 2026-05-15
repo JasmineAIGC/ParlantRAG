@@ -35,6 +35,7 @@ rag.py — RAG Tool（手动检索工具）组件。
 import parlant.sdk as p
 from parlant.sdk import ToolContext, ToolResult
 
+from plan_a.core import RetrievalRequest
 from plan_a.rag import RAGPipeline
 from utils.logging import get_logger
 
@@ -69,19 +70,24 @@ def make_rag_tool(pipeline: RAGPipeline):
         """
         logger.info(f"[RagTool] search_knowledge 调用  query={query!r}")
 
-        chunks = await pipeline.retrieve(query)
+        request = RetrievalRequest(query=query)
+        response = await pipeline.retrieve_standard(request)
+        chunks = response.chunks
 
         if not chunks:
             logger.info("[RagTool] 未命中相关内容")
             return p.ToolResult(
                 data={
-                    "found": False,
-                    "message": "知识库中未找到与该问题相关的内容。",
-                    "results": [],
+                    "request": request.to_dict(),
+                    "response": {
+                        **response.to_dict(include_metadata=False),
+                        "found": False,
+                        "message": "知识库中未找到与该问题相关的内容。",
+                    },
                 }
             )
 
-        results = [c.to_dict() for c in chunks]
+        results = [c.to_dict(include_metadata=request.include_metadata) for c in chunks]
         formatted = "\n\n".join(
             f"[{i + 1}] 来源: {c.source}\n相关度: {c.score:.3f}\n{c.content}"
             for i, c in enumerate(chunks)
@@ -90,10 +96,13 @@ def make_rag_tool(pipeline: RAGPipeline):
         logger.info(f"[RagTool] 返回 {len(chunks)} 个片段")
         return p.ToolResult(
             data={
-                "found": True,
-                "chunk_count": len(chunks),
-                "formatted": formatted,
-                "results": results,
+                "request": request.to_dict(),
+                "response": {
+                    **response.to_dict(include_metadata=request.include_metadata),
+                    "found": True,
+                    "formatted": formatted,
+                    "results": results,
+                },
             }
         )
 

@@ -24,9 +24,10 @@ pipeline.py — RAG 检索管道（核心服务层）。
 """
 from __future__ import annotations
 
+import time
 from typing import List, Optional
 
-from plan_a.core import DocChunk, PlanAConfig
+from plan_a.core import DocChunk, PlanAConfig, RetrievalRequest, RetrievalResponse
 from plan_a.rag.embedding import Embedder
 from plan_a.vdb import VectorStore
 from utils.logging import get_logger
@@ -114,13 +115,33 @@ class RAGPipeline:
             按相似度降序排列的 :class:`~plan_a.core.types.DocChunk` 列表；
             空列表表示知识库中未找到相关内容。
         """
+        response = await self.retrieve_standard(RetrievalRequest(query=query))
+        return response.chunks
+
+    async def retrieve_standard(self, request: RetrievalRequest) -> RetrievalResponse:
+        """
+        标准化检索接口（推荐）。
+
+        Args:
+            request: 标准化检索请求。
+
+        Returns:
+            标准化检索响应。
+        """
         if not self._initialized:
             await self.initialize()
 
-        logger.info(f"[RAGPipeline] 检索  query={query!r}")
+        query = request.normalized_query()
+        if not query:
+            raise ValueError("query 不能为空")
 
+        top_k = request.top_k or self._config.top_k
+        logger.info(f"[RAGPipeline] 检索  query={query!r}  top_k={top_k}")
+
+        t0 = time.monotonic()
         query_vector = await self._embedder.embed_query(query)
-        chunks = self._vector_store.search(query_vector, self._config.top_k)
+        chunks = self._vector_store.search(query_vector, top_k)
+        took_ms = int((time.monotonic() - t0) * 1000)
 
-        logger.info(f"[RAGPipeline] 命中 {len(chunks)} 个片段")
-        return chunks
+        logger.info(f"[RAGPipeline] 命中 {len(chunks)} 个片段  took_ms={took_ms}")
+        return RetrievalResponse(query=query, chunks=chunks, top_k=top_k, took_ms=took_ms)

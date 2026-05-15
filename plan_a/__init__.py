@@ -15,7 +15,7 @@ plan_a — 基于 Parlant 框架的极简版 RAG 方案。
 
 其中 core/ 提供跨模块复用的配置与共享类型。
 """
-from plan_a.core import DocChunk, PlanAConfig
+from plan_a.core import DocChunk, PlanAConfig, RetrievalRequest, RetrievalResponse
 from plan_a.rag import Embedder, RAGPipeline
 from plan_a.vdb import VectorStore
 
@@ -23,6 +23,8 @@ __all__ = [
     # 配置 & 类型
     "PlanAConfig",
     "DocChunk",
+    "RetrievalRequest",
+    "RetrievalResponse",
     # 基础组件
     "Embedder",
     "VectorStore",
