@@ -14,8 +14,18 @@ plan_a — 基于 Parlant 框架的极简版 RAG 方案。
               VDB[(向量数据库)]    ← plan_a/vdb/
 
 其中 core/ 提供跨模块复用的配置与共享类型。
+
+RAG 方式（RAGMode）
+------------------
+plan_a 支持两种 RAG 实现方式，可通过 :class:`~plan_a.core.types.RAGMode` 枚举选择：
+
+* ``RAGMode.STANDALONE``：不依赖 Parlant，直接使用 :class:`RAGPipeline` 检索，
+  适合脚本测试或轻量集成。
+
+* ``RAGMode.PARLANT``：依赖 Parlant 框架，通过 SR[Scoped Retriever]、
+  GL[Guidelines]、Tool[RAG Tool] 三件套接入 Agent 对话场景。
 """
-from plan_a.core import DocChunk, PlanAConfig, RetrievalRequest, RetrievalResponse
+from plan_a.core import DocChunk, PlanAConfig, RAGMode, RetrievalRequest, RetrievalResponse
 from plan_a.rag import Embedder, RAGPipeline
 from plan_a.vdb import VectorStore
 
@@ -23,6 +33,7 @@ __all__ = [
     # 配置 & 类型
     "PlanAConfig",
     "DocChunk",
+    "RAGMode",
     "RetrievalRequest",
     "RetrievalResponse",
     # 基础组件

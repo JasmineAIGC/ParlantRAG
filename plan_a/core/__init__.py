@@ -1,4 +1,4 @@
 from plan_a.core.config import PlanAConfig
-from plan_a.core.types import DocChunk, RetrievalRequest, RetrievalResponse
+from plan_a.core.types import DocChunk, RAGMode, RetrievalRequest, RetrievalResponse
 
-__all__ = ["PlanAConfig", "DocChunk", "RetrievalRequest", "RetrievalResponse"]
+__all__ = ["PlanAConfig", "DocChunk", "RAGMode", "RetrievalRequest", "RetrievalResponse"]
