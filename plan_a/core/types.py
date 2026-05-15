@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 
 _SCORE_PRECISION = 4
-"""score 字段序列化时保留的小数位数。"""
+"""score 字段执行 round() 时使用的小数位数。"""
 
 
 @dataclass

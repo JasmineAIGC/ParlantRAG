@@ -178,9 +178,10 @@ async def _check_local_embedding() -> tuple[bool, str]:
 
 async def main() -> int:
     args = _parse_args()
-    print("=" * 60)
-    print("  ParlantRAG — .env 配置可用性检测")
-    print("=" * 60)
+    if args.output_format == "text":
+        print("=" * 60)
+        print("  ParlantRAG — .env 配置可用性检测")
+        print("=" * 60)
     logger.info("[CheckEnv] 开始环境检测")
 
     checks = [
@@ -191,37 +192,45 @@ async def main() -> int:
 
     results: list[tuple[str, bool, str]] = []
     for name, coro in checks:
-        _header(f"检测：{name}")
+        if args.output_format == "text":
+            _header(f"检测：{name}")
         ok, detail = await coro
         skipped = "跳过" in detail
         if skipped:
-            print(f"  {_SKIP}  {detail}")
+            if args.output_format == "text":
+                print(f"  {_SKIP}  {detail}")
             results.append((name, True, detail))
         else:
-            _result(name, ok, detail)
+            if args.output_format == "text":
+                _result(name, ok, detail)
             results.append((name, ok, detail))
 
     # 汇总
-    print(f"\n{'='*60}")
-    print("  检测汇总")
-    print(f"{'='*60}")
+    if args.output_format == "text":
+        print(f"\n{'='*60}")
+        print("  检测汇总")
+        print(f"{'='*60}")
     failed = []
     for name, ok, detail in results:
         skipped = "跳过" in detail
         if skipped:
-            print(f"  {_SKIP}  {name:<20}  （未配置，已跳过）")
+            if args.output_format == "text":
+                print(f"  {_SKIP}  {name:<20}  （未配置，已跳过）")
         else:
             mark = _PASS if ok else _FAIL
             status = "通过" if ok else "失败"
-            print(f"  {mark}  {name:<20}  {status}")
+            if args.output_format == "text":
+                print(f"  {mark}  {name:<20}  {status}")
             if not ok:
                 failed.append(name)
 
-    print()
+    if args.output_format == "text":
+        print()
     if failed:
         logger.error(f"[CheckEnv] 检测失败: {', '.join(failed)}")
-        print(f"❌ 以下项目检测失败：{', '.join(failed)}")
-        print("   请检查 .env 配置及对应服务是否已启动。")
+        if args.output_format == "text":
+            print(f"❌ 以下项目检测失败：{', '.join(failed)}")
+            print("   请检查 .env 配置及对应服务是否已启动。")
         if args.output_format == "json":
             print(json.dumps({
                 "script": "00_check_env.py",
@@ -234,7 +243,8 @@ async def main() -> int:
         configured = [n for n, _, d in results if "跳过" not in d]
         if configured:
             logger.info(f"[CheckEnv] 全部检测通过（{len(configured)} 项）")
-            print(f"✅ 全部已配置项目检测通过（{len(configured)} 项）。")
+            if args.output_format == "text":
+                print(f"✅ 全部已配置项目检测通过（{len(configured)} 项）。")
             if args.output_format == "json":
                 print(json.dumps({
                     "script": "00_check_env.py",
@@ -244,7 +254,8 @@ async def main() -> int:
                 }, ensure_ascii=False, indent=2))
         else:
             logger.warning("[CheckEnv] 未检测到任何已配置项")
-            print("⚠️  .env 中未检测到任何已配置项（LLM / Embedding），请检查配置。")
+            if args.output_format == "text":
+                print("⚠️  .env 中未检测到任何已配置项（LLM / Embedding），请检查配置。")
             if args.output_format == "json":
                 print(json.dumps({
                     "script": "00_check_env.py",
