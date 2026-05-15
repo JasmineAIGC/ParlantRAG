@@ -20,7 +20,7 @@ pipeline.py — RAG 检索管道（核心服务层）。
         ▼ VectorStore.search()
     List[DocChunk]  ← 返回给调用方
 
-本文件不依赖 parlant_rag/ 或其他 RAG 实现模块。
+本文件不依赖其他 RAG 实现模块。
 """
 from __future__ import annotations
 

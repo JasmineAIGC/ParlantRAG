@@ -16,7 +16,7 @@ vector_store.py — 向量数据库层（VDB）。
 
 若目录不存在或索引文件缺失，抛出 ``FileNotFoundError``。
 
-本文件不依赖 parlant_rag/ 或其他 RAG 实现模块。
+本文件不依赖其他 RAG 实现模块。
 """
 from __future__ import annotations
 

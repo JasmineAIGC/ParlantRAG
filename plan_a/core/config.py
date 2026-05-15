@@ -2,7 +2,7 @@
 config.py — Plan A RAG 模块独立配置。
 
 从环境变量读取所有运行时参数。
-本文件不依赖 parlant_rag/ 或其他实现模块，仅使用标准库。
+本文件不依赖其他 RAG 实现模块，仅使用标准库。
 """
 from __future__ import annotations
 

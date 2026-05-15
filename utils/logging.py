@@ -112,4 +112,4 @@ def get_logger(name: str) -> logging.Logger:
 
 
 # 预设的日志器
-logger = setup_logging("parlant_rag")
+logger = setup_logging("parlantrag")
