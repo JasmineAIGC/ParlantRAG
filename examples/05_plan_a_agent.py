@@ -201,6 +201,15 @@ async def main() -> None:
             await asyncio.sleep(_DEMO_TIMEOUT_SECONDS)
             print(f"\n（演示模式：{_DEMO_TIMEOUT_SECONDS} 秒后自动退出）")
 
+    except ModuleNotFoundError as exc:
+        if exc.name == "torch":
+            print(
+                "\n⚠️  Parlant LiteLLM 适配器依赖 `torch`，当前环境缺失。\n"
+                "   请先安装 torch（例如 `pip install torch`），再重试 Agent 启动。"
+            )
+            logger.warning("[Entry] Parlant 启动失败：缺少 torch 依赖")
+        else:
+            raise
     except ImportError:
         print(
             "\n⚠️  未安装 parlant（pip install parlant），跳过 Agent 启动。\n"

@@ -16,6 +16,7 @@ env/
 # Environment variables
 .env
 logs/
+parlant-data/
 
 # IDEs
 .idea/

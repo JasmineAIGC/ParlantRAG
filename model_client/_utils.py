@@ -58,7 +58,7 @@ def bridge_parlant_litellm_env() -> dict[str, str]:
     已使用的 ``QWEN3_*`` / ``LLM_*`` / ``OPENAI_*`` 等命名。
 
     Returns:
-        已解析出的 ``LITELLM_PROVIDER_*`` 键值对。
+        已解析出的 ``LITELLM_*`` 键值对。
     """
     resolved: dict[str, str] = {}
 
@@ -83,6 +83,13 @@ def bridge_parlant_litellm_env() -> dict[str, str]:
         normalized_model = _normalize_litellm_model_name(model)
         os.environ.setdefault("LITELLM_PROVIDER_MODEL_NAME", normalized_model)
         resolved["LITELLM_PROVIDER_MODEL_NAME"] = os.environ["LITELLM_PROVIDER_MODEL_NAME"]
+
+    if embedding_model := os.getenv("LITELLM_EMBEDDING_MODEL_NAME") or first_env([
+        "EMBEDDING_MODEL", "QWEN3_EMBEDDING_MODEL", "LLM_EMBEDDING_MODEL",
+    ]):
+        normalized_embedding_model = _normalize_litellm_model_name(embedding_model)
+        os.environ.setdefault("LITELLM_EMBEDDING_MODEL_NAME", normalized_embedding_model)
+        resolved["LITELLM_EMBEDDING_MODEL_NAME"] = os.environ["LITELLM_EMBEDDING_MODEL_NAME"]
 
     return resolved
 
