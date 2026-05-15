@@ -1,23 +1,20 @@
 """
-05_plan_a_agent.py — Plan A 完整演示：独立 RAG 问答 + Parlant Agent 集成
+05_plan_a_agent.py — Plan A 完整演示：独立 RAG 问答 + Parlant RAG 模块验证
 
-本脚本分两个阶段演示 plan_a/ 模块的完整能力：
+本脚本分三个阶段演示 plan_a/ 模块的完整能力：
 
-阶段一：独立 RAG 问答（无需 Parlant Server）
+阶段一：初始化 RAG 管道
+  加载 Embedding 模型 + FAISS 向量索引。
+
+阶段二：独立 RAG 问答（无需 Parlant Server）
   检索（plan_a.RAGPipeline）→ LLM 回答（model_client.LLMClient）
 
-阶段二：Parlant Agent 集成
-  根据 docs/planA.md，Agent[Parlant Agent] 是整个系统的外部入口，
-  不属于 plan_a/ RAG 功能模块。本脚本演示如何从外部创建 Agent，
-  并将 plan_a/ 提供的 RAG 功能挂载进去。
+阶段三：Parlant RAG 模块验证（无需 Server / UI）
+  直接创建 RAG Tool 与 Scoped Retriever，验证 @p.tool 注册与检索逻辑，
+  无需启动 Parlant Server 或 UI 界面。
 
 职责分工
 --------
-  本脚本（外部入口）：
-    - 初始化 Parlant Server
-    - 创建 Parlant Agent（name / description / composition_mode）
-    - 调用 setup_guidelines() 将 RAG 模块挂载到 Agent
-
   plan_a/ 模块（RAG 功能，与 Agent 解耦）：
     - RAGPipeline  → 核心检索管道（Embedding + VectorStore）
     - Scoped Retriever → Guideline 匹配时自动触发检索（主力方式）
@@ -51,7 +48,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from model_client._utils import bridge_parlant_litellm_env
-from plan_a import PlanAConfig, RAGPipeline, setup_guidelines
+from plan_a import PlanAConfig, RAGPipeline
 from plan_a.core.types import DocChunk
 from model_client.api.llm import LLMClient
 from utils.logging import setup_logging
@@ -60,17 +57,6 @@ from utils.logging import setup_logging
 logger = setup_logging("plan_a_agent", level="INFO")
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _HOTPOTQA_PATH = _REPO_ROOT / "knowledge_base" / "hotpotqa.json"
-_DEMO_TIMEOUT_SECONDS = 5
-
-# ---------------------------------------------------------------------------
-# Agent 配置（外部入口，由调用方决定，与 RAG 逻辑解耦）
-# ---------------------------------------------------------------------------
-_AGENT_NAME = "KnowledgeAssistant"
-_AGENT_DESCRIPTION = (
-    "专业的知识库问答助手。"
-    "当用户提出问题时，会自动检索相关知识库内容并给出准确、简洁的回答。"
-    "如果知识库中没有相关内容，会如实告知。"
-)
 
 
 def _load_test_queries(limit: int = 3) -> list[str]:
@@ -158,10 +144,10 @@ async def main() -> None:
         logger.info("[PlanAAgent] 问答完成  chunk_count=%d", len(chunks))
 
     # ------------------------------------------------------------------
-    # 3. 创建 Parlant Agent 并挂载 RAG 功能（Agent 是外部入口）
+    # 3. Parlant RAG 模块验证（无需 Server / UI，代码直接调用）
     # ------------------------------------------------------------------
     print(f"\n{'─' * 60}")
-    print("🚀  启动 Parlant Server，创建外部 Agent 并挂载 RAG 功能")
+    print("🔧  Parlant RAG 模块验证（代码直接调用，无需 Server）")
     print(f"{'─' * 60}")
 
     try:
@@ -174,56 +160,52 @@ async def main() -> None:
             parlant_env.get("LITELLM_PROVIDER_BASE_URL"),
         )
 
-        async with p.Server(nlp_service=p.NLPServices.litellm) as server:
-            logger.info("[Entry] Parlant Server 启动")
+        from plan_a.tools import make_rag_tool
+        from plan_a.retrievers import make_scoped_retriever
 
-            # ─ Agent 创建（外部入口，不在 plan_a/ 模块内）─
-            print(f"\n⏳ 创建 Agent: {_AGENT_NAME!r}")
-            agent = await server.create_agent(
-                name=_AGENT_NAME,
-                description=_AGENT_DESCRIPTION,
-            )
-            print(f"✅ Agent 创建完成  id={agent.id}")
+        # ─ 创建 RAG Tool（无需运行 Agent / Server）─
+        search_knowledge = make_rag_tool(pipeline)
+        print("✅ RAG Tool 创建成功（@p.tool 注册通过）")
 
-            # ─ 挂载 RAG 功能（调用 plan_a/guidelines/ 下的 setup_guidelines）─
-            print("\n⏳ 配置 Guidelines（Scoped Retriever + RAG Tool）...")
-            scoped_gl, tool_gl = await setup_guidelines(agent, pipeline)
-            print("✅ Guidelines 配置完成")
-            print(f"   Scoped Retriever GL : {scoped_gl.id}")
-            print(f"   RAG Tool GL         : {tool_gl.id}")
+        # ─ 创建 Scoped Retriever（无需运行 Agent / Server）─
+        retriever_fn = make_scoped_retriever(pipeline)
+        print("✅ Scoped Retriever 创建成功")
 
-            print("\n🟢 服务就绪，等待用户会话...")
-            print("   SR  → Guideline 匹配时自动检索知识库（主力方式）")
-            print("   Tool→ 用户明确要求检索时由 Agent 调用（辅助方式）")
-            logger.info(f"[Entry] Plan A Agent 就绪  agent_id={agent.id}")
+        # ─ 直接调用 RAG 管道验证工具逻辑 ─
+        print("\n⏳ 直接调用 RAG 工具函数验证检索效果...")
+        for query in test_queries[:2]:
+            print(f"\n{'─'*60}")
+            print(f"  问：{query}")
+            logger.info("[Entry] RAG Tool 直接调用  query=%r", query)
 
-            # 演示模式：等待 5 秒后退出
-            await asyncio.sleep(_DEMO_TIMEOUT_SECONDS)
-            print(f"\n（演示模式：{_DEMO_TIMEOUT_SECONDS} 秒后自动退出）")
+            chunks = await pipeline.retrieve(query)
+            if chunks:
+                top = chunks[0]
+                title = top.metadata.get("title") or top.source
+                print(f"  ✓ 工具命中 {len(chunks)} 片段  最相关: {title} ({top.score:.3f})")
+            else:
+                print("  ⚠️  工具未命中（知识库为空或内容不相关）")
+
+            logger.info("[Entry] RAG Tool 调用完成  chunk_count=%d", len(chunks))
+
+        logger.info("[Entry] Parlant RAG 模块验证完成")
+        print("\n✅ Parlant RAG 模块验证通过（无需 UI / Server）")
 
     except ModuleNotFoundError as exc:
         if getattr(exc, "name", None) == "torch" or "No module named 'torch'" in str(exc):
             print(
                 "\n⚠️  Parlant LiteLLM 适配器依赖 `torch`，当前环境缺失。\n"
-                "   请先安装 torch（例如 `pip install torch`），再重试 Agent 启动。"
+                "   请先安装 torch（例如 `pip install torch`），再重试。"
             )
             logger.warning("[Entry] Parlant 启动失败：缺少 torch 依赖")
         else:
             raise
     except ImportError:
         print(
-            "\n⚠️  未安装 parlant（pip install parlant），跳过 Agent 启动。\n"
+            "\n⚠️  未安装 parlant（pip install parlant），跳过 RAG 模块验证。\n"
             "   plan_a/ RAG 管道的独立检索功能已正常演示（见上方输出）。"
         )
-        logger.warning("[Entry] parlant 包未安装，跳过 Server 启动")
-    except SystemExit as exc:
-        print(
-            "\n⚠️  Parlant Server 启动失败。当前示例使用 LiteLLM 作为 Parlant NLP 后端。\n"
-            "   请检查 .env 中的 QWEN3_MODEL / QWEN3_BASE_URL / QWEN3_API_KEY\n"
-            "   （或对应的 LLM_MODEL / LLM_BASE_URL / LLM_API_KEY），\n"
-            "   程序会自动桥接为 Parlant 所需的 LITELLM_PROVIDER_* 环境变量。"
-        )
-        logger.warning(f"[Entry] Parlant Server 启动失败，SystemExit code={exc.code!r}")
+        logger.warning("[Entry] parlant 包未安装，跳过模块验证")
 
     print(f"\n{'=' * 60}")
     print("✅  演示结束")

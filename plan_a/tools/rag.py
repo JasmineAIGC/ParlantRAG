@@ -33,6 +33,7 @@ rag.py — RAG Tool（手动检索工具）组件。
     )
 """
 import parlant.sdk as p
+from parlant.sdk import ToolContext, ToolResult
 
 from plan_a.rag import RAGPipeline
 from utils.logging import get_logger
@@ -56,7 +57,7 @@ def make_rag_tool(pipeline: RAGPipeline):
     """
 
     @p.tool
-    async def search_knowledge(context: p.ToolContext, query: str) -> p.ToolResult:
+    async def search_knowledge(context: ToolContext, query: str) -> ToolResult:
         """
         在知识库中检索与 query 相关的文档片段。
 
