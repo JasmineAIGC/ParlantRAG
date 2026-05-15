@@ -73,7 +73,7 @@ class Embedder:
             每条文本对应的向量（与索引维度一致）。
         """
         client = self._ensure_client()
-        return await client.aget_text_embeddings(texts)
+        return await client._aget_text_embeddings(texts)
 
     async def embed_query(self, query: str) -> List[float]:
         """
