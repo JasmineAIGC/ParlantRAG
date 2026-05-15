@@ -25,14 +25,20 @@ setup.py — Guidelines 配置层（GL）。
 
     # 外部入口脚本（Agent 是外部入口，不在 RAG 模块内）
     import parlant.sdk as p
-    from plan_a.rag import RAGPipeline
+    from plan_a import PlanAConfig, RAGPipeline
     from plan_a.guidelines import setup_guidelines
+    from plan_a.runner import run_parlant_server
 
-    async with p.Server() as server:
-        agent = await server.create_agent(name="...", description="...")
-        pipeline = RAGPipeline()
-        await pipeline.initialize()
-        await setup_guidelines(agent, pipeline)
+    config = PlanAConfig.from_env()
+    pipeline = RAGPipeline(config)
+    await pipeline.initialize()
+
+    # 轻量用法（无 Server，后台执行）
+    from plan_a.runner import run_parlant
+    results = await run_parlant(pipeline, ["用户问题"], llm=llm)
+
+    # 完整 Server 用法
+    agent_info, results = await run_parlant_server(pipeline, ["用户问题"], llm=llm)
 """
 from __future__ import annotations
 
@@ -83,6 +89,8 @@ async def setup_guidelines(
     scoped_retriever_action: Optional[str] = None,
     rag_tool_condition: Optional[str] = None,
     rag_tool_action: Optional[str] = None,
+    top_k: Optional[int] = None,
+    include_metadata: bool = False,
 ) -> Tuple[p.Guideline, p.Guideline]:
     """
     为 Agent 创建并配置 RAG 相关的 Guidelines（GL 层）。
@@ -100,6 +108,10 @@ async def setup_guidelines(
             RAG Tool Guideline 的触发条件（``None`` 使用内置默认值）。
         rag_tool_action:
             RAG Tool Guideline 的执行动作（``None`` 使用内置默认值）。
+        top_k:
+            两种检索方式的最大返回片段数；``None`` 使用各自组件的默认值。
+        include_metadata:
+            是否在检索结果中包含文档元数据（默认 False）。
 
     Returns:
         ``(scoped_guideline, rag_tool_guideline)`` — 创建好的两条 Guidelines。
@@ -113,7 +125,7 @@ async def setup_guidelines(
         condition=sr_condition,
         action=sr_action,
     )
-    retriever_fn = make_scoped_retriever(pipeline)
+    retriever_fn = make_scoped_retriever(pipeline, top_k=top_k, include_metadata=include_metadata)
     await scoped_guideline.attach_retriever(retriever_fn)
     logger.info(f"[Guidelines] Scoped Retriever 就绪  id={scoped_guideline.id}")
 
@@ -122,7 +134,7 @@ async def setup_guidelines(
     tool_action = rag_tool_action or _RAG_TOOL_ACTION
 
     logger.info("[Guidelines] 创建 RAG Tool Guideline")
-    search_knowledge = make_rag_tool(pipeline)
+    search_knowledge = make_rag_tool(pipeline, top_k=top_k, include_metadata=include_metadata)
     rag_tool_guideline = await agent.create_guideline(
         condition=tool_condition,
         action=tool_action,

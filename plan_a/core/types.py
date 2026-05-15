@@ -6,11 +6,25 @@ types.py — Plan A 模块共享数据类型。
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 
 _SCORE_PRECISION = 4
 """score 字段执行 round() 时使用的小数位数。"""
+
+
+class RAGMode(str, Enum):
+    """
+    RAG 实现方式选择。
+
+    STANDALONE : 不依赖 Parlant，直接使用 RAGPipeline 检索（适合脚本、测试等轻量场景）。
+    PARLANT    : 依赖 Parlant 框架，通过 SR[Scoped Retriever]、GL[Guidelines]、
+                 Tool[RAG Tool] 三件套接入 Agent（完整 Agent 对话场景）。
+    """
+
+    STANDALONE = "standalone"
+    PARLANT = "parlant"
 
 
 @dataclass

@@ -51,6 +51,8 @@ logger = get_logger("plan_a.retrievers.scoped")
 
 def make_scoped_retriever(
     pipeline: RAGPipeline,
+    top_k: int = None,
+    include_metadata: bool = False,
 ) -> Callable[[p.RetrieverContext], Awaitable[p.RetrieverResult | None]]:
     """
     工厂函数：创建绑定到 ``pipeline`` 的 Parlant Scoped Retriever 函数。
@@ -60,7 +62,9 @@ def make_scoped_retriever(
     将检索结果注入 Agent 的推理上下文。
 
     Args:
-        pipeline: :class:`~plan_a.rag.pipeline.RAGPipeline` 实例（懒初始化安全）。
+        pipeline:         :class:`~plan_a.rag.pipeline.RAGPipeline` 实例（懒初始化安全）。
+        top_k:            检索返回的最大片段数；``None`` 表示使用 pipeline 默认值。
+        include_metadata: 是否在元数据中包含文档元数据（默认 False）。
 
     Returns:
         符合 ``RetrieverFunction`` 签名的异步函数。
@@ -75,7 +79,7 @@ def make_scoped_retriever(
             logger.debug("[ScopedRetriever] 无用户消息，跳过检索")
             return None
 
-        request = RetrievalRequest(query=last_msg.content)
+        request = RetrievalRequest(query=last_msg.content, top_k=top_k, include_metadata=include_metadata)
         response = await pipeline.retrieve_standard(request)
         chunks = response.chunks
 
