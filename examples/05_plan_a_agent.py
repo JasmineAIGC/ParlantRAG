@@ -47,6 +47,8 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plan A 完整演示（两种 RAG 模式）")
     parser.add_argument("--limit", type=int, default=3, help="测试问题数量")
     parser.add_argument("--seed", type=int, default=0, help="抽样随机种子")
+    parser.add_argument("--top-k", type=int, default=None, metavar="K", help="检索返回的最大片段数（默认使用 pipeline 配置）")
+    parser.add_argument("--include-metadata", action="store_true", help="在检索结果中包含文档元数据")
     parser.add_argument("--output-format", choices=["text", "json"], default="text", help="输出格式")
     parser.add_argument(
         "--mode",
@@ -72,7 +74,7 @@ async def main(args: argparse.Namespace) -> None:
     standalone_rows: list[dict] = []
     if run_standalone_mode:
         logger.info("[Entry] 运行 Standalone 模式  query_count=%d", len(queries))
-        standalone_rows = await run_standalone(pipeline, queries, llm)
+        standalone_rows = await run_standalone(pipeline, queries, llm, top_k=args.top_k, include_metadata=args.include_metadata)
 
     # --- Parlant 模式（无 Server，后台执行）---
     parlant_rows: list[dict] = []
@@ -80,7 +82,7 @@ async def main(args: argparse.Namespace) -> None:
     if run_parlant_mode:
         try:
             logger.info("[Entry] 运行 Parlant 模式（无 Server，后台执行）  query_count=%d", len(queries))
-            parlant_rows = await run_parlant(pipeline, queries, llm)
+            parlant_rows = await run_parlant(pipeline, queries, llm, top_k=args.top_k, include_metadata=args.include_metadata)
             parlant_status = "ok"
         except ModuleNotFoundError as exc:
             if getattr(exc, "name", None) == "torch" or "No module named 'torch'" in str(exc):

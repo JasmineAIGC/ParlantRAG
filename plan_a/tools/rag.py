@@ -43,7 +43,11 @@ from utils.logging import get_logger
 logger = get_logger("plan_a.tools.rag")
 
 
-def make_rag_tool(pipeline: RAGPipeline):
+def make_rag_tool(
+    pipeline: RAGPipeline,
+    top_k: int = None,
+    include_metadata: bool = False,
+):
     """
     工厂函数：创建绑定到 ``pipeline`` 的 Parlant RAG Tool。
 
@@ -51,7 +55,9 @@ def make_rag_tool(pipeline: RAGPipeline):
     可直接传入 ``agent.create_guideline(tools=[...])``。
 
     Args:
-        pipeline: :class:`~plan_a.rag.pipeline.RAGPipeline` 实例（懒初始化安全）。
+        pipeline:         :class:`~plan_a.rag.pipeline.RAGPipeline` 实例（懒初始化安全）。
+        top_k:            检索返回的最大片段数；``None`` 表示使用 pipeline 默认值。
+        include_metadata: 是否在返回结果中包含文档元数据（默认 False）。
 
     Returns:
         ``parlant.sdk.ToolEntry`` — 已注册的 Parlant Tool 对象。
@@ -68,9 +74,9 @@ def make_rag_tool(pipeline: RAGPipeline):
         Returns:
             检索到的知识库内容，按相关性排序。
         """
-        logger.info(f"[RagTool] search_knowledge 调用  query={query!r}")
+        logger.info(f"[RagTool] search_knowledge 调用  query={query!r}  top_k={top_k}")
 
-        request = RetrievalRequest(query=query)
+        request = RetrievalRequest(query=query, top_k=top_k, include_metadata=include_metadata)
         response = await pipeline.retrieve_standard(request)
         chunks = response.chunks
 

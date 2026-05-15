@@ -165,6 +165,8 @@ async def run_standalone(
     pipeline: RAGPipeline,
     queries: list[str],
     llm: "LLMClient",
+    top_k: Optional[int] = None,
+    include_metadata: bool = False,
 ) -> list[dict]:
     """
     Standalone 模式 Q&A：RAGPipeline 直接检索 → LLMClient 生成回答。
@@ -172,20 +174,24 @@ async def run_standalone(
     无需安装 Parlant，适合脚本测试与批量评估。
 
     Args:
-        pipeline: 已初始化的 :class:`~plan_a.rag.pipeline.RAGPipeline`。
-        queries:  查询文本列表。
-        llm:      :class:`~model_client.api.llm.LLMClient` 实例。
+        pipeline:         已初始化的 :class:`~plan_a.rag.pipeline.RAGPipeline`。
+        queries:          查询文本列表。
+        llm:              :class:`~model_client.api.llm.LLMClient` 实例（运行时必须可用）。
+        top_k:            最大返回片段数；``None`` 使用 pipeline 默认值。
+        include_metadata: 是否在检索结果中包含文档元数据（默认 False）。
 
     Returns:
         每条查询对应一个 dict：``{"retrieval": {...}, "answer": str}``。
     """
     results: list[dict] = []
     for query in queries:
-        logger.info("[Runner.Standalone] query=%r", query)
-        response = await pipeline.retrieve_standard(RetrievalRequest(query=query))
+        logger.info("[Runner.Standalone] query=%r  top_k=%s", query, top_k)
+        response = await pipeline.retrieve_standard(
+            RetrievalRequest(query=query, top_k=top_k, include_metadata=include_metadata)
+        )
         answer = await generate_answer(llm, query, response.chunks)
         results.append({
-            "retrieval": response.to_dict(include_metadata=False),
+            "retrieval": response.to_dict(include_metadata=include_metadata),
             "answer": answer.strip(),
         })
         logger.info("[Runner.Standalone] 完成  chunks=%d", len(response.chunks))
@@ -200,6 +206,8 @@ async def run_parlant(
     pipeline: RAGPipeline,
     queries: list[str],
     llm: Optional["LLMClient"] = None,
+    top_k: Optional[int] = None,
+    include_metadata: bool = False,
 ) -> list[dict]:
     """
     Parlant 模式 Q&A（**无需启动 Parlant Server，后台执行，不弹 UI**）。
@@ -209,10 +217,12 @@ async def run_parlant(
     但不启动任何 HTTP Server 或 Web 界面。
 
     Args:
-        pipeline: 已初始化的 :class:`~plan_a.rag.pipeline.RAGPipeline`。
-        queries:  查询文本列表。
-        llm:      可选 :class:`~model_client.api.llm.LLMClient`；
-                  提供时在检索后生成 LLM 回答，省略时只返回检索结果。
+        pipeline:         已初始化的 :class:`~plan_a.rag.pipeline.RAGPipeline`。
+        queries:          查询文本列表。
+        llm:              可选 :class:`~model_client.api.llm.LLMClient`（运行时必须可用）；
+                          提供时在检索后生成 LLM 回答，省略时只返回检索结果。
+        top_k:            最大返回片段数；``None`` 使用 pipeline 默认值。
+        include_metadata: 是否在检索结果中包含文档元数据（默认 False）。
 
     Returns:
         每条查询对应一个 dict：
@@ -224,8 +234,11 @@ async def run_parlant(
     """
     from plan_a.tools import make_rag_tool
 
-    search_knowledge = make_rag_tool(pipeline)
-    logger.info("[Runner.Parlant] 开始（无 Server，后台执行）  query_count=%d", len(queries))
+    search_knowledge = make_rag_tool(pipeline, top_k=top_k, include_metadata=include_metadata)
+    logger.info(
+        "[Runner.Parlant] 开始（无 Server，后台执行）  query_count=%d  top_k=%s",
+        len(queries), top_k,
+    )
     results = await _run_tool_queries(search_knowledge, queries, llm)
     logger.info("[Runner.Parlant] 完成  result_count=%d", len(results))
     return results
@@ -241,6 +254,8 @@ async def run_parlant_server(
     agent_name: str = "plan-a-rag-agent",
     agent_description: str = "Plan A RAG Agent：知识库问答助手",
     llm: Optional["LLMClient"] = None,
+    top_k: Optional[int] = None,
+    include_metadata: bool = False,
 ) -> tuple[dict, list[dict]]:
     """
     Parlant Server 模式（完整集成）：启动 Parlant Server，创建 Agent，
@@ -254,7 +269,9 @@ async def run_parlant_server(
         queries:           查询文本列表。
         agent_name:        Parlant Agent 名称。
         agent_description: Parlant Agent 描述。
-        llm:               可选 LLMClient（用于生成回答）。
+        llm:               可选 LLMClient（运行时必须可用，用于生成回答）。
+        top_k:             最大返回片段数；``None`` 使用 pipeline 默认值。
+        include_metadata:  是否在检索结果中包含文档元数据（默认 False）。
 
     Returns:
         ``(agent_info, results)``：
@@ -277,12 +294,14 @@ async def run_parlant_server(
     from plan_a.tools import make_rag_tool
 
     bridge_parlant_litellm_env()
-    logger.info("[Runner.ParlantServer] 启动 Parlant Server（NLP: LiteLLM）")
+    logger.info("[Runner.ParlantServer] 启动 Parlant Server（NLP: LiteLLM）  top_k=%s", top_k)
 
     async with p.Server(nlp_service=p.NLPServices.litellm) as server:
         agent = await server.create_agent(name=agent_name, description=agent_description)
-        scoped_gl, tool_gl = await setup_guidelines(agent, pipeline)
-        search_knowledge = make_rag_tool(pipeline)
+        scoped_gl, tool_gl = await setup_guidelines(
+            agent, pipeline, top_k=top_k, include_metadata=include_metadata
+        )
+        search_knowledge = make_rag_tool(pipeline, top_k=top_k, include_metadata=include_metadata)
         logger.info("[Runner.ParlantServer] Agent 就绪  id=%s", agent.id)
 
         results = await _run_tool_queries(search_knowledge, queries, llm)
