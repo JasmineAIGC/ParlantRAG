@@ -30,9 +30,9 @@
 前置条件：
     1. 已构建知识库索引（支持 faiss_index.bin / faiss_index 及不同文档持久化格式）
     2. 已配置 .env（参考 .env.example）：
-       - EMBEDDING_MODEL_PATH 或 EMBEDDING_BASE_URL / EMBEDDING_MODEL
-       - KNOWLEDGE_BASE_PATH（或 KNOWLEDGE_PERSIST_DIR）
-       - LLM 相关配置（QWEN3_* 或 LLM_*）
+        - EMBEDDING_MODEL_PATH 或 EMBEDDING_BASE_URL / EMBEDDING_MODEL
+        - KNOWLEDGE_BASE_PATH（或 KNOWLEDGE_PERSIST_DIR）
+        - LLM 相关配置（QWEN3_* 或 LLM_*；会自动桥接为 Parlant 所需的 LITELLM_PROVIDER_*）
     3. 测试 query 从 knowledge_base/hotpotqa.json 中抽样读取
 """
 from __future__ import annotations
@@ -50,6 +50,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from model_client._utils import bridge_parlant_litellm_env
 from plan_a import PlanAConfig, RAGPipeline, setup_guidelines
 from plan_a.core.types import DocChunk
 from model_client.api.llm import LLMClient
@@ -165,7 +166,14 @@ async def main() -> None:
     try:
         import parlant.sdk as p
 
-        async with p.Server() as server:
+        parlant_env = bridge_parlant_litellm_env()
+        logger.info(
+            "[Entry] Parlant NLP 环境已准备  model=%s  base_url=%s",
+            parlant_env.get("LITELLM_PROVIDER_MODEL_NAME"),
+            parlant_env.get("LITELLM_PROVIDER_BASE_URL"),
+        )
+
+        async with p.Server(nlp_service=p.NLPServices.litellm) as server:
             logger.info("[Entry] Parlant Server 启动")
 
             # ─ Agent 创建（外部入口，不在 plan_a/ 模块内）─
@@ -200,8 +208,10 @@ async def main() -> None:
         logger.warning("[Entry] parlant 包未安装，跳过 Server 启动")
     except SystemExit as exc:
         print(
-            "\n⚠️  Parlant Server 启动失败，通常是 NLP 服务配置缺失（例如未设置 EMCIE_API_KEY）。\n"
-            "   请先完成 Parlant 相关环境变量配置，再重试 Agent 启动。"
+            "\n⚠️  Parlant Server 启动失败。当前示例使用 LiteLLM 作为 Parlant NLP 后端。\n"
+            "   请检查 .env 中的 QWEN3_MODEL / QWEN3_BASE_URL / QWEN3_API_KEY\n"
+            "   （或对应的 LLM_MODEL / LLM_BASE_URL / LLM_API_KEY），\n"
+            "   程序会自动桥接为 Parlant 所需的 LITELLM_PROVIDER_* 环境变量。"
         )
         logger.warning(f"[Entry] Parlant Server 启动失败，SystemExit code={exc.code!r}")
 

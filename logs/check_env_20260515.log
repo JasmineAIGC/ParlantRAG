@@ -1,6 +1,0 @@
-2026-05-15 02:29:54,630  [92mINFO[0m  check_env  [92m[CheckEnv] 开始环境检测[0m
-2026-05-15 02:29:54,630  [92mINFO[0m  check_env  [92m[CheckEnv] 开始检测 LLM API: LLM API  model=Qwen2.5-7B-Instruct  url=http://10.112.172.30:18023/v1[0m
-2026-05-15 02:30:11,166  [91mERROR[0m  check_env  [91m[CheckEnv] LLM API 检测失败: Request timed out.[0m
-2026-05-15 02:30:11,166  [92mINFO[0m  check_env  [92m[CheckEnv] 开始检测 Embedding API: Embedding API  model=Qwen3-Embedding-8B  url=http://10.112.172.30:18024/v1[0m
-2026-05-15 02:30:27,495  [91mERROR[0m  check_env  [91m[CheckEnv] Embedding API 检测失败: Request timed out.[0m
-2026-05-15 02:30:27,495  [91mERROR[0m  check_env  [91m[CheckEnv] 检测失败: LLM API, Embedding API[0m

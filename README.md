@@ -40,6 +40,8 @@ cp .env.example .env
 - `KNOWLEDGE_PERSIST_DIR`（或 `KNOWLEDGE_BASE_PATH`）
 - `EMBEDDING_MODEL_PATH` **或** `EMBEDDING_BASE_URL` + `EMBEDDING_MODEL`
 - 进行评估/问答时配置 `QWEN3_*`（或 `LLM_*`）
+- 运行 `examples/05_plan_a_agent.py` 时，会自动把 `QWEN3_*` / `LLM_*` 桥接为
+  Parlant 所需的 `LITELLM_PROVIDER_*`，无需再手工维护第二套同义配置
 
 ### 3) 运行示例
 
