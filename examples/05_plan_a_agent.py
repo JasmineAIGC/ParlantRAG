@@ -202,7 +202,7 @@ async def main() -> None:
             print(f"\n（演示模式：{_DEMO_TIMEOUT_SECONDS} 秒后自动退出）")
 
     except ModuleNotFoundError as exc:
-        if exc.name == "torch":
+        if getattr(exc, "name", None) == "torch" or "No module named 'torch'" in str(exc):
             print(
                 "\n⚠️  Parlant LiteLLM 适配器依赖 `torch`，当前环境缺失。\n"
                 "   请先安装 torch（例如 `pip install torch`），再重试 Agent 启动。"
