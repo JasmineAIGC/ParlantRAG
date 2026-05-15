@@ -151,7 +151,7 @@ async def run_parlant_tool(
         tool_response = await pipeline.retrieve_standard(RetrievalRequest(query=query))
         return {
             "status": "ok",
-            "tool_name": search_knowledge.__name__,
+            "tool_name": search_knowledge.__ne__,
             "tool_result": tool_response.to_dict(include_metadata=False),
         }
     except ModuleNotFoundError as exc:
