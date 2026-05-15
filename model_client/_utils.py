@@ -44,7 +44,7 @@ def first_env(keys: Sequence[str], default: Optional[str] = None) -> Optional[st
 
 
 def _normalize_litellm_model_name(model: str) -> str:
-    """将 OpenAI 兼容端点上的模型名标准化为 LiteLLM 可识别格式。"""
+    """若模型名未显式携带 provider 前缀，则补齐 ``openai/`` 前缀。"""
     if any(model.startswith(prefix) for prefix in _LITELLM_PROVIDER_PREFIXES):
         return model
     return f"openai/{model}"
@@ -56,6 +56,9 @@ def bridge_parlant_litellm_env() -> dict[str, str]:
 
     优先保留用户显式设置的 ``LITELLM_*``，仅在缺失时回退到当前仓库
     已使用的 ``QWEN3_*`` / ``LLM_*`` / ``OPENAI_*`` 等命名。
+
+    Returns:
+        已解析出的 ``LITELLM_PROVIDER_*`` 键值对。
     """
     resolved: dict[str, str] = {}
 

@@ -60,6 +60,7 @@ from utils.logging import setup_logging
 logger = setup_logging("plan_a_agent", level="INFO")
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _HOTPOTQA_PATH = _REPO_ROOT / "knowledge_base" / "hotpotqa.json"
+_DEMO_TIMEOUT_SECONDS = 5
 
 # ---------------------------------------------------------------------------
 # Agent 配置（外部入口，由调用方决定，与 RAG 逻辑解耦）
@@ -197,8 +198,8 @@ async def main() -> None:
             logger.info(f"[Entry] Plan A Agent 就绪  agent_id={agent.id}")
 
             # 演示模式：等待 5 秒后退出
-            await asyncio.sleep(5)
-            print("\n（演示模式：5 秒后自动退出）")
+            await asyncio.sleep(_DEMO_TIMEOUT_SECONDS)
+            print(f"\n（演示模式：{_DEMO_TIMEOUT_SECONDS} 秒后自动退出）")
 
     except ImportError:
         print(
