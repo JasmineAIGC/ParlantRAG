@@ -1,9 +1,15 @@
 """
-05_plan_a_agent.py — Plan A 架构：外部 Parlant Agent 入口脚本
+05_plan_a_agent.py — Plan A 完整演示：独立 RAG 问答 + Parlant Agent 集成
 
-根据 docs/planA.md，Agent[Parlant Agent] 是整个系统的外部入口，
-不属于 plan_a/ RAG 功能模块。本脚本演示如何从外部创建 Agent，
-并将 plan_a/ 提供的 RAG 功能挂载进去。
+本脚本分两个阶段演示 plan_a/ 模块的完整能力：
+
+阶段一：独立 RAG 问答（无需 Parlant Server）
+  检索（plan_a.RAGPipeline）→ LLM 回答（model_client.LLMClient）
+
+阶段二：Parlant Agent 集成
+  根据 docs/planA.md，Agent[Parlant Agent] 是整个系统的外部入口，
+  不属于 plan_a/ RAG 功能模块。本脚本演示如何从外部创建 Agent，
+  并将 plan_a/ 提供的 RAG 功能挂载进去。
 
 职责分工
 --------
@@ -26,6 +32,7 @@
     2. 已配置 .env（参考 .env.example）：
        - EMBEDDING_MODEL_PATH 或 EMBEDDING_BASE_URL / EMBEDDING_MODEL
        - KNOWLEDGE_BASE_PATH（或 KNOWLEDGE_PERSIST_DIR）
+       - LLM 相关配置（QWEN3_* 或 LLM_*）
     3. 测试 query 从 knowledge_base/hotpotqa.json 中抽样读取
 """
 from __future__ import annotations
@@ -44,6 +51,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from plan_a import PlanAConfig, RAGPipeline, setup_guidelines
+from plan_a.core.types import DocChunk
+from model_client.api.llm import LLMClient
 from utils.logging import setup_logging
 
 
@@ -81,10 +90,31 @@ def _load_test_queries(limit: int = 3) -> list[str]:
     return Random(0).sample(questions, limit)
 
 
+async def _answer(llm: LLMClient, question: str, chunks: list[DocChunk]) -> str:
+    """根据检索到的文档片段使用 LLM 生成回答。"""
+    if not chunks:
+        return "知识库中未找到与该问题相关的内容，无法回答。"
+
+    context_text = "\n\n".join(
+        f"[来源: {c.metadata.get('title') or c.source}]\n{c.content}"
+        for c in chunks
+    )
+    prompt = (
+        "请根据以下知识库内容简洁回答用户问题。若内容不足以回答，请如实说明。\n\n"
+        f"用户问题：{question}\n\n"
+        f"知识库内容：\n{context_text}\n\n回答："
+    )
+    try:
+        return await llm.chat_async([{"role": "user", "content": prompt}])
+    except Exception as exc:
+        logger.error("[PlanAAgent] LLM 调用失败: %s", exc)
+        return f"LLM 调用失败，无法生成回答：{exc}"
+
+
 async def main() -> None:
     print("=" * 60)
-    print("🤖  Plan A — Parlant Agent + RAG 系统")
-    print("    Agent 是外部入口，RAG 功能由 plan_a/ 模块提供")
+    print("🤖  Plan A — 独立 RAG 问答 + Parlant Agent 集成演示")
+    print("    检索：plan_a.RAGPipeline  |  回答：model_client.LLMClient")
     print("=" * 60)
 
     # ------------------------------------------------------------------
@@ -93,26 +123,37 @@ async def main() -> None:
     print("\n⏳ 初始化 RAG 管道（加载 Embedding + FAISS 索引）...")
     config = PlanAConfig.from_env()
     pipeline = RAGPipeline(config)
+    llm = LLMClient()
     await pipeline.initialize()
     print("✅ RAG 管道初始化完成")
 
     # ------------------------------------------------------------------
-    # 2. 快速验证 RAG 管道的独立检索能力（无需 Agent）
+    # 2. 快速验证 RAG 管道的独立检索 + LLM 问答能力（无需 Agent）
     # ------------------------------------------------------------------
     print(f"\n{'─' * 60}")
-    print("🔍  RAG 管道独立检索测试")
+    print("🔍  RAG 问答演示（无需 Parlant Server）")
     print(f"{'─' * 60}")
     test_queries = _load_test_queries()
-    print(f"📚 测试问题来源：{_HOTPOTQA_PATH}")
+    print(f"📚 测试问题来源：{_HOTPOTQA_PATH}\n")
     for query in test_queries:
-        print(f"\n  问：{query}")
+        print(f"{'─'*60}")
+        print(f"  问：{query}")
+        logger.info("[PlanAAgent] query=%r", query)
+
         chunks = await pipeline.retrieve(query)
         if chunks:
             top = chunks[0]
-            print(f"  ✓ 命中 {len(chunks)} 片段  最相关: {top.source} ({top.score:.3f})")
-            print(f"    {top.content[:80]}...")
+            # 优先使用 metadata 中的标题；source 在部分格式下为 UUID
+            title = top.metadata.get("title") or top.source
+            print(f"  ✓ 命中 {len(chunks)} 片段  最相关: {title} ({top.score:.3f})")
         else:
             print("  ⚠️  未命中（知识库为空或内容不相关）")
+
+        print("  ⏳ LLM 生成回答中...")
+        answer = await _answer(llm, query, chunks)
+        print(f"\n  💬 回答：")
+        print(f"     {answer.strip()[:300]}")
+        logger.info("[PlanAAgent] 问答完成  chunk_count=%d", len(chunks))
 
     # ------------------------------------------------------------------
     # 3. 创建 Parlant Agent 并挂载 RAG 功能（Agent 是外部入口）
