@@ -10,9 +10,10 @@
   检索（plan_a.RAGPipeline）→ LLM 回答（model_client.LLMClient）
   对应 RAGMode.STANDALONE。
 
-阶段三：Parlant RAG 模块验证（无需 Server / UI）
-  直接创建 RAG Tool 与 Scoped Retriever，验证 @p.tool 注册与检索逻辑，
-  无需启动 Parlant Server 或 UI 界面。
+阶段三：Parlant RAG 完整验证
+  启动 Parlant Server（使用 .env 配置的 LiteLLM NLP 服务），创建 Agent，
+  配置 SR[Scoped Retriever] + GL[Guidelines] + Tool[RAG Tool]，
+  并通过 Parlant RAG Tool 执行检索查询。
   对应 RAGMode.PARLANT。
 
 职责分工
@@ -152,6 +153,9 @@ async def main(args: argparse.Namespace) -> None:
     if args.output_format == "text":
         print("✅ RAG 管道初始化完成")
 
+    # 提前加载测试问题，两种模式均需使用
+    test_queries = _load_test_queries(limit=args.limit, seed=args.seed)
+
     # ------------------------------------------------------------------
     # 2. 快速验证 RAG 管道的独立检索 + LLM 问答能力（无需 Agent）
     #    对应 RAGMode.STANDALONE
@@ -162,8 +166,6 @@ async def main(args: argparse.Namespace) -> None:
             print(f"\n{'─' * 60}")
             print("🔍  RAG 问答演示（RAGMode.STANDALONE — 无需 Parlant Server）")
             print(f"{'─' * 60}")
-        test_queries = _load_test_queries(limit=args.limit, seed=args.seed)
-        if args.output_format == "text":
             print(f"📚 测试问题来源：{_HOTPOTQA_PATH}\n")
         for query in test_queries:
             if args.output_format == "text":
@@ -194,12 +196,9 @@ async def main(args: argparse.Namespace) -> None:
                 print(f"\n  💬 回答：")
                 print(f"     {answer.strip()[:300]}")
             logger.info("[PlanAAgent] 问答完成  chunk_count=%d", len(chunks))
-    else:
-        # 需要 test_queries 供阶段三使用
-        test_queries = _load_test_queries(limit=args.limit, seed=args.seed)
 
     # ------------------------------------------------------------------
-    # 3. Parlant RAG 模块验证（无需 Server / UI，代码直接调用）
+    # 3. Parlant RAG 完整验证（启动 Parlant Server + NLP 配置）
     #    对应 RAGMode.PARLANT
     # ------------------------------------------------------------------
     parlant_rows: list[dict] = []
@@ -208,7 +207,7 @@ async def main(args: argparse.Namespace) -> None:
     if run_parlant:
         if args.output_format == "text":
             print(f"\n{'─' * 60}")
-            print("🔧  Parlant RAG 模块验证（RAGMode.PARLANT — 代码直接调用，无需 Server）")
+            print("🔧  Parlant RAG 完整验证（RAGMode.PARLANT — 启动 Parlant Server）")
             print(f"{'─' * 60}")
 
         try:
@@ -221,46 +220,56 @@ async def main(args: argparse.Namespace) -> None:
                 parlant_env.get("LITELLM_PROVIDER_BASE_URL"),
             )
 
+            from plan_a.guidelines import setup_guidelines
             from plan_a.tools import make_rag_tool
-            from plan_a.retrievers import make_scoped_retriever
 
-            # ─ 创建 RAG Tool（无需运行 Agent / Server）─
-            search_knowledge = make_rag_tool(pipeline)
             if args.output_format == "text":
-                print("✅ RAG Tool 创建成功（@p.tool 注册通过）")
+                print("⏳ 启动 Parlant Server（NLP: LiteLLM，使用 .env 配置的模型）...")
 
-            # ─ 创建 Scoped Retriever（无需运行 Agent / Server）─
-            retriever_fn = make_scoped_retriever(pipeline)
-            if args.output_format == "text":
-                print("✅ Scoped Retriever 创建成功")
-
-            # ─ 直接调用 RAG 管道验证工具逻辑 ─
-            if args.output_format == "text":
-                print("\n⏳ 直接调用 RAG 工具函数验证检索效果...")
-            for query in test_queries[:2]:
+            async with p.Server(nlp_service=p.NLPServices.litellm) as server:
+                agent = await server.create_agent(
+                    name="plan-a-demo-agent",
+                    description="Plan A 演示 Agent：知识库问答助手",
+                )
                 if args.output_format == "text":
-                    print(f"\n{'─'*60}")
-                    print(f"  问：{query}")
-                logger.info("[Entry] RAG Tool 直接调用  query=%r", query)
+                    print(f"✅ Agent 创建完成  id={agent.id}")
 
-                tool_response = await pipeline.retrieve_standard(RetrievalRequest(query=query))
-                chunks = tool_response.chunks
-                parlant_rows.append(tool_response.to_dict(include_metadata=False))
-                if chunks:
-                    top = chunks[0]
-                    title = top.metadata.get("title") or top.source
+                scoped_gl, tool_gl = await setup_guidelines(agent, pipeline)
+                if args.output_format == "text":
+                    print(f"✅ Guidelines 配置完成")
+                    print(f"   Scoped Retriever GL : {scoped_gl.id}")
+                    print(f"   RAG Tool GL         : {tool_gl.id}")
+
+                search_knowledge = make_rag_tool(pipeline)
+
+                if args.output_format == "text":
+                    print("\n⏳ 通过 Parlant RAG Tool 执行检索...")
+                for query in test_queries[:2]:
                     if args.output_format == "text":
-                        print(f"  ✓ 工具命中 {len(chunks)} 片段  最相关: {title} ({top.score:.3f})")
-                else:
-                    if args.output_format == "text":
-                        print("  ⚠️  工具未命中（知识库为空或内容不相关）")
+                        print(f"\n{'─'*60}")
+                        print(f"  问：{query}")
+                    logger.info("[Entry] Parlant RAG Tool 调用  query=%r", query)
 
-                logger.info("[Entry] RAG Tool 调用完成  chunk_count=%d", len(chunks))
+                    tool_result = await search_knowledge(None, query)  # None = ToolContext（直接调用时无 Parlant 会话上下文）
+                    tool_data = getattr(tool_result, "data", {}) if tool_result is not None else {}
+                    tool_resp = tool_data.get("response") or {}
+                    parlant_rows.append({
+                        "request": tool_data.get("request") or {"query": query},
+                        "response": tool_resp,
+                    })
+                    chunk_count = tool_resp.get("chunk_count", 0)
+                    if chunk_count:
+                        if args.output_format == "text":
+                            print(f"  ✓ RAG Tool 命中 {chunk_count} 片段")
+                    else:
+                        if args.output_format == "text":
+                            print("  ⚠️  RAG Tool 未命中（知识库为空或内容不相关）")
+                    logger.info("[Entry] Parlant RAG Tool 调用完成  chunk_count=%d", chunk_count)
 
-            logger.info("[Entry] Parlant RAG 模块验证完成")
+            logger.info("[Entry] Parlant RAG 验证完成")
             parlant_status = "ok"
             if args.output_format == "text":
-                print("\n✅ Parlant RAG 模块验证通过（无需 UI / Server）")
+                print("\n✅ Parlant RAG 完整验证通过")
 
         except ModuleNotFoundError as exc:
             if getattr(exc, "name", None) == "torch" or "No module named 'torch'" in str(exc):

@@ -19,13 +19,50 @@ flowchart TD
 
 | 模块 | 名称 | 简要说明 | 示例 |
 |------|------|----------|------|
-| **User** | 用户 | 发起提问并接收回答的真实用户 | 用户在聊天框输入：“30天能退货吗？” |
-| **Agent** | Parlant Agent | **整个系统的“大脑”**，负责接收消息、协调逻辑、生成最终回复 | Parlant 中通过 `create_agent()` 创建的智能客服助手 |
-| **GL** | Guidelines | **规则/准则**，用自然语言定义“在什么情况下该做什么” | `condition="当用户询问退货政策、会员权益时"`<br>`action="去检索知识库后回答"` |
+| **User** | 用户 | 发起提问并接收回答的真实用户 | 用户在聊天框输入："30天能退货吗？" |
+| **Agent** | Parlant Agent | **整个系统的"大脑"**，负责接收消息、协调逻辑、生成最终回复 | Parlant 中通过 `create_agent()` 创建的智能客服助手 |
+| **GL** | Guidelines | **规则/准则**，用自然语言定义"在什么情况下该做什么" | `condition="当用户询问退货政策、会员权益时"`<br>`action="去检索知识库后回答"` |
 | **SR** | Scoped Retriever | **推荐主力**的 RAG 实现方式。绑定在 Guideline 上，**自动**检索相关知识 | 用户问退货政策时，自动调用 RAG 检索相关文档并注入上下文 |
-| **Tool** | RAG Tool | **辅助方式**。需要 Agent 主动调用的检索工具，控制更精准 | `@p.tool` 定义的 `search_knowledge()` 函数，用户明确说“帮我查最新政策文档”时才调用 |
+| **Tool** | RAG Tool | **辅助方式**。需要 Agent 主动调用的检索工具，控制更精准 | `@p.tool` 定义的 `search_knowledge()` 函数，用户明确说"帮我查最新政策文档"时才调用 |
 | **RAG** | RAG 服务 / Pipeline | 你自己实现的**检索管道**，负责 Embedding、向量搜索、排序等操作 | 使用 LlamaIndex 或 LangChain 编写的检索流程，接收问题后返回最相关文档 |
 | **VDB** | 向量数据库 | 实际存储公司知识文档的地方 | Milvus / PGVector / Chroma 中存储的数百篇公司政策、产品手册、FAQ 文档 |
+
+---
+
+### RAG 实现方式（RAGMode）
+
+`plan_a` 通过 `RAGMode` 枚举提供两种 RAG 模式：
+
+#### `RAGMode.STANDALONE`（独立模式）
+
+不依赖 Parlant 框架，直接使用 `RAGPipeline` 进行向量检索，再调用 `LLMClient` 生成回答。适合脚本测试、批量评估等轻量场景，**无需安装 parlant / torch**。
+
+```
+用户查询
+    │
+    ▼ RAGPipeline.retrieve_standard()
+List[DocChunk]
+    │
+    ▼ LLMClient.chat_async()
+回答文本
+```
+
+#### `RAGMode.PARLANT`（Parlant 集成模式）
+
+依赖 Parlant 框架，启动 `p.Server(nlp_service=p.NLPServices.litellm)` NLP 服务（模型来自 `.env` 的 `QWEN3_*`/`LLM_*` 配置），完整接入 Agent 对话场景：
+
+```
+p.Server(nlp_service=p.NLPServices.litellm)
+    │
+    ├── Agent.create_guideline → SR[Scoped Retriever]（主力，自动触发）
+    │       └── RAGPipeline.retrieve_standard()
+    └── Agent.create_guideline → Tool[RAG Tool]（辅助，Agent 主动调用）
+            └── RAGPipeline.retrieve_standard()
+```
+
+对应入口：
+- `examples/05_plan_a_agent.py --mode parlant`
+- `examples/06_rag_query.py`
 
 ---
 
@@ -43,8 +80,7 @@ flowchart TD
 
 ### 总结（一句话理解）
 
-- **Parlant Agent** 是“大脑”
-- **Guidelines** 是“决策规则”
-- **Scoped Retriever** 是“自动查资料的主要方式”
-- **RAG 服务 + 向量数据库** 是“真正的知识仓库”
-
+- **Parlant Agent** 是"大脑"
+- **Guidelines** 是"决策规则"
+- **Scoped Retriever** 是"自动查资料的主要方式"
+- **RAG 服务 + 向量数据库** 是"真正的知识仓库"

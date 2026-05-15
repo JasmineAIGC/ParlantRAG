@@ -2,15 +2,18 @@
 06_rag_query.py — 基于 Parlant Agent 的 RAG 查询示例（Parlant-first）
 
 本脚本以 Parlant 为主入口，按 GL -> SR / Tool -> RAGPipeline 的方式接入 RAG。
+Parlant Server 使用 NLPServices.litellm，模型配置来自 .env（QWEN3_* / LLM_*），
+不依赖外部 NLP 服务。
 
 流程说明
 --------
-1. 初始化 plan_a.RAGPipeline（Embedding + FAISS 索引）。
-2. 创建 Parlant Agent。
-3. 调用 setup_guidelines(agent, pipeline) 配置两条 Guideline：
+1. 桥接 .env 的 QWEN3_*/LLM_* 为 Parlant 所需的 LITELLM_PROVIDER_* 环境变量。
+2. 初始化 plan_a.RAGPipeline（Embedding + FAISS 索引）。
+3. 启动 p.Server(nlp_service=p.NLPServices.litellm) 并创建 Parlant Agent。
+4. 调用 setup_guidelines(agent, pipeline) 配置两条 Guideline：
    - GL -> SR（Scoped Retriever，自动检索）
    - GL -> Tool（RAG Tool，主动调用）
-4. 通过 Parlant @p.tool 路径执行 RAG 查询（Tool 内部调用 RAGPipeline）。
+5. 通过 Parlant @p.tool 路径执行 RAG 查询（Tool 内部调用 RAGPipeline）。
 """
 
 import argparse
@@ -60,7 +63,7 @@ def _trim_tool_chunks(tool_payload: dict, top_k: int | None) -> dict:
 
 
 async def _run_via_parlant_tool(search_knowledge, query: str, top_k: int | None) -> dict:
-    result = await search_knowledge(None, query)
+    result = await search_knowledge(None, query)  # None = ToolContext（直接调用时无 Parlant 会话上下文）
     data = getattr(result, "data", {}) if result is not None else {}
     response = _trim_tool_chunks(data.get("response") or {}, top_k)
     return {
@@ -84,7 +87,7 @@ async def main(args: argparse.Namespace) -> None:
     pipeline = RAGPipeline(config)
     await pipeline.initialize()
 
-    async with p.Server() as server:
+    async with p.Server(nlp_service=p.NLPServices.litellm) as server:
         agent = await server.create_agent(name=args.agent_name, description="Parlant-first RAG query demo")
         scoped_guideline, rag_tool_guideline = await setup_guidelines(agent, pipeline)
         search_knowledge = make_rag_tool(pipeline)
