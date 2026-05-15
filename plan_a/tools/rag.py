@@ -32,8 +32,6 @@ rag.py — RAG Tool（手动检索工具）组件。
         tools=[search_knowledge],
     )
 """
-from __future__ import annotations
-
 import parlant.sdk as p
 
 from plan_a.rag import RAGPipeline
