@@ -25,14 +25,20 @@ setup.py — Guidelines 配置层（GL）。
 
     # 外部入口脚本（Agent 是外部入口，不在 RAG 模块内）
     import parlant.sdk as p
-    from plan_a.rag import RAGPipeline
+    from plan_a import PlanAConfig, RAGPipeline
     from plan_a.guidelines import setup_guidelines
+    from plan_a.runner import run_parlant_server
 
-    async with p.Server() as server:
-        agent = await server.create_agent(name="...", description="...")
-        pipeline = RAGPipeline()
-        await pipeline.initialize()
-        await setup_guidelines(agent, pipeline)
+    config = PlanAConfig.from_env()
+    pipeline = RAGPipeline(config)
+    await pipeline.initialize()
+
+    # 轻量用法（无 Server，后台执行）
+    from plan_a.runner import run_parlant
+    results = await run_parlant(pipeline, ["用户问题"], llm=llm)
+
+    # 完整 Server 用法
+    agent_info, results = await run_parlant_server(pipeline, ["用户问题"], llm=llm)
 """
 from __future__ import annotations
 

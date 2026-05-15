@@ -41,10 +41,15 @@ __all__ = [
     "VectorStore",
     # RAG 管道（核心）
     "RAGPipeline",
-    # Parlant 集成
+    # Parlant 集成（懒加载，需安装 parlant）
     "make_scoped_retriever",
     "make_rag_tool",
     "setup_guidelines",
+    # Runner（两种模式的 query-answer 入口）
+    "load_test_queries",
+    "run_standalone",
+    "run_parlant",
+    "run_parlant_server",
 ]
 
 
@@ -64,3 +69,27 @@ def setup_guidelines(*args, **kwargs):
     from plan_a.guidelines import setup_guidelines as _impl
 
     return _impl(*args, **kwargs)
+
+
+def load_test_queries(*args, **kwargs):
+    from plan_a.runner import load_test_queries as _impl
+
+    return _impl(*args, **kwargs)
+
+
+async def run_standalone(*args, **kwargs):
+    from plan_a.runner import run_standalone as _impl
+
+    return await _impl(*args, **kwargs)
+
+
+async def run_parlant(*args, **kwargs):
+    from plan_a.runner import run_parlant as _impl
+
+    return await _impl(*args, **kwargs)
+
+
+async def run_parlant_server(*args, **kwargs):
+    from plan_a.runner import run_parlant_server as _impl
+
+    return await _impl(*args, **kwargs)

@@ -49,20 +49,37 @@ List[DocChunk]
 
 #### `RAGMode.PARLANT`（Parlant 集成模式）
 
-依赖 Parlant 框架，启动 `p.Server(nlp_service=p.NLPServices.litellm)` NLP 服务（模型来自 `.env` 的 `QWEN3_*`/`LLM_*` 配置），完整接入 Agent 对话场景：
+通过 Parlant 的 `@p.tool` 接口检索，后台程序化执行，**不启动 Server / 不弹出 UI**。
+所有逻辑封装在 `plan_a/runner.py` 的 `run_parlant()`，测试脚本只调用该函数。
+
+```
+run_parlant(pipeline, queries, llm)
+    │
+    ▼ make_rag_tool(pipeline)(None, query)   ← @p.tool 接口，无需 Server
+    ToolResult（chunks + formatted context）
+    │
+    ▼ LLMClient.chat_async()
+    回答文本
+```
+
+对应入口：`examples/05_plan_a_agent.py --mode parlant`
+
+#### Parlant Server 模式（完整 Agent 部署）
+
+需要 Parlant Server 时（生产部署 / 完整集成测试），使用 `run_parlant_server()`：
+启动 `p.Server(nlp_service=p.NLPServices.litellm)`（NLP 模型来自 `.env`），
+创建 Agent + Guidelines，后台程序化执行 query-answer，**不弹出 UI**。
 
 ```
 p.Server(nlp_service=p.NLPServices.litellm)
     │
     ├── Agent.create_guideline → SR[Scoped Retriever]（主力，自动触发）
     │       └── RAGPipeline.retrieve_standard()
-    └── Agent.create_guideline → Tool[RAG Tool]（辅助，Agent 主动调用）
+    └── Agent.create_guideline → Tool[RAG Tool]（辅助，程序化调用）
             └── RAGPipeline.retrieve_standard()
 ```
 
-对应入口：
-- `examples/05_plan_a_agent.py --mode parlant`
-- `examples/06_rag_query.py`
+对应入口：`examples/06_rag_query.py`
 
 ---
 
