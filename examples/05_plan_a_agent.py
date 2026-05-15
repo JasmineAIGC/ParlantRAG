@@ -157,6 +157,12 @@ async def main() -> None:
             "   plan_a/ RAG 管道的独立检索功能已正常演示（见上方输出）。"
         )
         logger.warning("[Entry] parlant 包未安装，跳过 Server 启动")
+    except SystemExit as exc:
+        print(
+            "\n⚠️  Parlant Server 启动失败，通常是 NLP 服务配置缺失（例如未设置 EMCIE_API_KEY）。\n"
+            "   请先完成 Parlant 相关环境变量配置，再重试 Agent 启动。"
+        )
+        logger.warning(f"[Entry] Parlant Server 启动失败，SystemExit code={exc.code!r}")
 
     print(f"\n{'=' * 60}")
     print("✅  演示结束")
