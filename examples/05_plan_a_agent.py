@@ -87,10 +87,14 @@ async def main(args: argparse.Namespace) -> None:
                 pipeline, queries, llm=llm, top_k=args.top_k, include_metadata=args.include_metadata
             )
             parlant_status = "ok"
-        except ModuleNotFoundError as exc:
-            if getattr(exc, "name", None) == "torch" or "No module named 'torch'" in str(exc):
+        except (ModuleNotFoundError, RuntimeError) as exc:
+            exc_str = str(exc)
+            if "torch" in exc_str or (isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None) == "torch"):
                 parlant_status = "missing_torch"
                 logger.warning("[Entry] Parlant 启动失败：缺少 torch 依赖（pip install torch）")
+            elif "parlant" in exc_str.lower():
+                parlant_status = "missing_parlant"
+                logger.warning("[Entry] parlant 包未安装，跳过（pip install parlant）")
             else:
                 raise
         except ImportError:
