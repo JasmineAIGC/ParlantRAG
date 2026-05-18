@@ -124,7 +124,6 @@ async def _run_tool_queries(
     """
     results: list[dict] = []
     for query in queries:
-        # None = ToolContext（直接调用时无 Parlant 会话上下文）
         tool_result = await search_knowledge(None, query)
         tool_data: dict[str, Any] = getattr(tool_result, "data", {}) if tool_result is not None else {}
         tool_resp: dict[str, Any] = tool_data.get("response") or {}
@@ -330,11 +329,11 @@ class ParlantServerContext:
             self.top_k,
         )
 
-        # 启动 Server（全程只执行一次）
+        # 启动 Server
         self._server_ctx = p.Server(nlp_service=p.NLPServices.litellm)
         self._server = await self._server_ctx.__aenter__()
 
-        # 创建 Agent + Guidelines（全程只执行一次）
+        # 创建 Agent + Guidelines
         self.agent = await self._server.create_agent(
             name=self.agent_name, description=self.agent_description
         )
