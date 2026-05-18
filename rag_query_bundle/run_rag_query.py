@@ -96,15 +96,18 @@ async def main(args: argparse.Namespace) -> None:
     # 阶段 1：初始化（Parlant Server 启动 + LiteLLM 服务初始化 + 知识库 Embedding 缓存）
     # ------------------------------------------------------------------
     t0 = time.monotonic()
+    # 从环境变量加载配置，构建 RAGPipeline 并初始化向量索引
     config = PlanAConfig.from_env()
     pipeline = RAGPipeline(config)
     await pipeline.initialize()
 
+    # 若开启 --answer，提前创建 LLMClient 供后处理阶段使用
     llm = None
     if args.answer:
         from model_client.api.llm import LLMClient
         llm = LLMClient()
 
+    # 启动 Parlant Server，创建 Agent 和 Guidelines（哨兵模式，不弹出 UI）
     ctx = ParlantServerContext(
         pipeline,
         top_k=args.top_k,
@@ -119,6 +122,7 @@ async def main(args: argparse.Namespace) -> None:
         # 阶段 2：RAG 检索（Agent RAG Tool 向量检索，不含 LLM 调用）
         # ------------------------------------------------------------------
         t0 = time.monotonic()
+        # 调用 RAG Tool 执行向量检索，llm=None 确保此阶段不触发 LLM
         results = await ctx.run_queries([args.query], llm=None)
         rag_ms = _ms(t0)
         result = results[0] if results else {}
@@ -131,6 +135,7 @@ async def main(args: argparse.Namespace) -> None:
         t0 = time.monotonic()
         answer = ""
         if llm is not None:
+            # 用检索到的 formatted 上下文构建 prompt，调用 LLM 生成回答
             formatted: str = resp.get("formatted") or ""
             if formatted:
                 answer_prompt = (
@@ -151,8 +156,10 @@ async def main(args: argparse.Namespace) -> None:
         print(f"⏱  后处理完成   took={postprocess_ms}ms  |  总耗时={total_ms}ms")
 
     finally:
+        # 退出 Parlant Server 上下文，释放资源
         await ctx.__aexit__(None, None, None)
 
+    # 组装最终输出结构
     output = {
         "query": args.query,
         "retrieval": {
@@ -170,6 +177,7 @@ async def main(args: argparse.Namespace) -> None:
         },
     }
 
+    # 按输出格式写入终端或文件
     use_json = args.output_format == "json" or args.output_file is not None
     if use_json:
         text = json.dumps(output, ensure_ascii=False, indent=2)
