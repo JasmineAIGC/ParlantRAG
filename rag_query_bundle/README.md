@@ -121,29 +121,5 @@ cp .env.example .env
 
 ---
 
-## 前置条件：构建知识库索引
-
-运行前须先从仓库根目录构建 FAISS 向量索引：
-
-```bash
-python examples/01_load_knowledge_base.py
-```
-
----
-
-## 运行时依赖
-
-```bash
-pip install parlant litellm python-dotenv openai httpx \
-            llama-index llama-index-vector-stores-faiss faiss-cpu
-```
-
-> Parlant 3.x 的 LiteLLM 适配器依赖 `torch`，如遇 `No module named 'torch'` 报错：
-> ```bash
-> pip install torch --index-url https://download.pytorch.org/whl/cpu
-> ```
-
----
-
 完整架构说明见 `docs/planA.md`。
 
