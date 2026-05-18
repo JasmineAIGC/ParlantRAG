@@ -62,7 +62,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from plan_a import PlanAConfig, RAGPipeline
-from plan_a.runner import ParlantServerContext, generate_answer
+from plan_a.runner import ParlantServerContext
 from utils.logging import setup_logging
 
 
@@ -93,10 +93,7 @@ async def main(args: argparse.Namespace) -> None:
     t_total = time.monotonic()
 
     # ------------------------------------------------------------------
-    # 阶段 1：初始化
-    #   含：PlanAConfig + RAGPipeline + Parlant Server 启动
-    #       + LiteLLM 服务初始化 + 知识库实体 Embedding 缓存
-    #   以上均为一次性操作，服务存续期内不会重复。
+    # 阶段 1：初始化（Parlant Server 启动 + LiteLLM 服务初始化 + 知识库 Embedding 缓存）
     # ------------------------------------------------------------------
     t0 = time.monotonic()
     config = PlanAConfig.from_env()
@@ -122,7 +119,6 @@ async def main(args: argparse.Namespace) -> None:
         # 阶段 2：RAG 检索（Agent RAG Tool 向量检索，不含 LLM 调用）
         # ------------------------------------------------------------------
         t0 = time.monotonic()
-        # 不传 llm，确保此阶段只做检索
         results = await ctx.run_queries([args.query], llm=None)
         rag_ms = _ms(t0)
         result = results[0] if results else {}
