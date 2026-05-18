@@ -50,6 +50,7 @@ __all__ = [
     "run_standalone",
     "run_parlant",
     "run_parlant_server",
+    "ParlantServerContext",
 ]
 
 
@@ -93,3 +94,20 @@ async def run_parlant_server(*args, **kwargs):
     from plan_a.runner import run_parlant_server as _impl
 
     return await _impl(*args, **kwargs)
+
+
+class ParlantServerContext:
+    """懒加载代理：将构造延迟到 plan_a.runner.ParlantServerContext 实现。"""
+
+    def __init__(self, *args, **kwargs):
+        from plan_a.runner import ParlantServerContext as _impl
+        self._impl = _impl(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._impl, name)
+
+    async def __aenter__(self):
+        return await self._impl.__aenter__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        return await self._impl.__aexit__(exc_type, exc_val, exc_tb)
