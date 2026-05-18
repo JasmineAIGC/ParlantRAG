@@ -93,7 +93,6 @@ def make_rag_tool(
                 }
             )
 
-        results = [c.to_dict(include_metadata=request.include_metadata) for c in chunks]
         formatted = "\n\n".join(
             f"[{i + 1}] 来源: {c.source}\n相关度: {c.score:.3f}\n{c.content}"
             for i, c in enumerate(chunks)
@@ -107,7 +106,6 @@ def make_rag_tool(
                     **response.to_dict(include_metadata=request.include_metadata),
                     "found": True,
                     "formatted": formatted,
-                    "results": results,
                 },
             }
         )

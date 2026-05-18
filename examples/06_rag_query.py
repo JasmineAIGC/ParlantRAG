@@ -59,15 +59,16 @@ async def main(args: argparse.Namespace) -> None:
         include_metadata=args.include_metadata,
     )
     result = results[0] if results else {}
-
+    resp = result.get("response", {})
     output = {
-        "script": "06_rag_query.py",
-        "request": {
-            "query": args.query,
-            "top_k": args.top_k,
-            "include_metadata": args.include_metadata,
+        "query": args.query,
+        "retrieval": {
+            "top_k": resp.get("top_k"),
+            "chunk_count": resp.get("chunk_count", 0),
+            "took_ms": resp.get("took_ms"),
+            "chunks": resp.get("chunks", []),
         },
-        "result": result,
+        "answer": result.get("answer", ""),
     }
 
     use_json = args.output_format == "json" or args.output_file is not None
@@ -81,8 +82,8 @@ async def main(args: argparse.Namespace) -> None:
         else:
             print(text)
     else:
-        chunks = result.get("response", {}).get("chunk_count", 0)
-        answer = result.get("answer", "")
+        chunks = output["retrieval"]["chunk_count"]
+        answer = output["answer"]
         print(f"✅ 查询完成  chunks={chunks}")
         if answer:
             print(f"   回答：{answer[:300]}")
