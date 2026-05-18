@@ -246,6 +246,18 @@ async def run_parlant(
 
 
 # ---------------------------------------------------------------------------
+# 内部哨兵：跳过 Parlant HTTP Server 启动
+# ---------------------------------------------------------------------------
+
+class _ParlantSkipServerStart(Exception):
+    """
+    哨兵异常：以程序化方式退出 p.Server 上下文时传入，
+    令 p.Server.__aexit__ 走"有异常"分支（仅清理资源），
+    跳过实体评估（~20s）、uvicorn HTTP Server 启动和 UI 链接打印。
+    """
+
+
+# ---------------------------------------------------------------------------
 # Parlant Server 上下文（启动时初始化一次，多轮对话复用）
 # ---------------------------------------------------------------------------
 
@@ -257,13 +269,13 @@ class ParlantServerContext:
 
     * ``__aenter__``：启动 Parlant Server、创建 Agent、配置 Guidelines（只执行一次）。
     * :meth:`run_queries`：使用已初始化的 Server 执行查询（可多次调用）。
-    * ``__aexit__``：关闭 Server。
+    * ``__aexit__``：以哨兵异常方式退出，跳过 uvicorn HTTP Server 启动，只做资源清理。
 
     适用于需要长期运行的服务场景——Server 和 Guidelines 只在进入上下文时创建一次，
     后续每轮对话直接调用 :meth:`run_queries`，不会重复初始化。
 
-    **注意**：Parlant Server 启动时会在日志中输出访问地址，这是 Parlant 自身行为；
-    程序不会主动打开浏览器或弹出 UI 界面。
+    **注意**：通过哨兵异常绕过 Parlant 内置的 HTTP Server 启动，
+    程序不会主动打开浏览器或弹出 UI 界面，也不会打印 Sandbox UI 链接。
 
     使用方式::
 
@@ -346,9 +358,13 @@ class ParlantServerContext:
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
         if self._server_ctx is not None:
-            await self._server_ctx.__aexit__(exc_type, exc_val, exc_tb)
+            server_ctx = self._server_ctx
             self._server_ctx = None
             self._server = None
+            # 传入哨兵异常：令 p.Server.__aexit__ 走"有异常"分支（只做资源清理），
+            # 跳过 _process_evaluations()、uvicorn 启动和 UI 链接打印。
+            _sentinel = _ParlantSkipServerStart()
+            await server_ctx.__aexit__(type(_sentinel), _sentinel, None)
         return False
 
     async def run_queries(
@@ -398,8 +414,8 @@ async def run_parlant_server(
     NLP 服务使用 ``NLPServices.litellm``，模型来自 ``.env`` 配置（``QWEN3_*``/``LLM_*``），
     由 :func:`~model_client._utils.bridge_parlant_litellm_env` 自动桥接。
 
-    **注意**：Parlant Server 启动时会在日志中输出访问地址，这是 Parlant 自身行为；
-    程序不会主动打开浏览器或弹出 UI 界面。
+    **注意**：通过哨兵异常绕过 Parlant 内置的 HTTP Server 启动，
+    程序不会主动打开浏览器、弹出 UI 界面或打印 Sandbox UI 链接。
 
     Args:
         pipeline:          已初始化的 :class:`~plan_a.rag.pipeline.RAGPipeline`。
