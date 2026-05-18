@@ -1,13 +1,19 @@
 """
 run_rag_query.py — Parlant Server 模式单条 RAG 查询入口（后台执行，无 UI）
 
-通过完整的 Parlant Agent + Guidelines + RAG Tool 执行单条 query-answer：
-  1. 启动 Parlant Server（后台，不弹出 UI）
-  2. 创建 Agent，并配置 Scoped Retriever 和 RAG Tool 两条 Guidelines
-  3. 执行检索并用 LLM 生成回答
-  4. 输出结构化结果
+本目录是自包含的（含 plan_a/、model_client/、utils/），
+从本目录直接运行即可，无需额外设置 PYTHONPATH：
 
-所有检索/设置逻辑均在 plan_a/runner.py 中，本脚本只做初始化和输出。
+    cd rag_query_bundle
+    python run_rag_query.py --query "你的问题"
+
+执行流程：
+  1. 初始化（PlanAConfig + RAGPipeline + LLMClient，加载 FAISS 索引）
+  2. RAG 执行（Parlant Server 启动 → Agent + Guidelines → RAG Tool 检索）
+  3. 后处理（LLM 生成回答 → 组装输出 dict）
+  4. 输出（文本摘要或完整 JSON，可保存到文件）
+
+各阶段耗时均会打印到终端（格式：`⏱  <阶段>  took=XXXms`）。
 
 输出 JSON 结构
 --------------
@@ -18,13 +24,19 @@ run_rag_query.py — Parlant Server 模式单条 RAG 查询入口（后台执行
       "retrieval": {
         "top_k":       <实际使用的检索片段上限>,
         "chunk_count": <命中的片段数>,
-        "took_ms":     <检索耗时（毫秒）>,
+        "took_ms":     <RAG 工具内部向量检索耗时（毫秒）>,
         "chunks": [
           { "content": "<片段正文>", "source": "<来源>", "score": <相似度> },
           ...
         ]
       },
-      "answer": "<LLM 生成的回答>"
+      "answer": "<LLM 生成的回答>",
+      "timing": {
+        "init_ms":        <初始化阶段耗时（毫秒）>,
+        "rag_ms":         <RAG 执行阶段耗时（毫秒）>,
+        "postprocess_ms": <后处理阶段耗时（毫秒）>,
+        "total_ms":       <总耗时（毫秒）>
+      }
     }
 
 详细字段说明见同目录 README.md。
@@ -36,10 +48,11 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
-# 将仓库根目录加入 sys.path，保证可以 import plan_a / model_client / utils
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 将本脚本所在目录（rag_query_bundle/）插入 sys.path，使 plan_a/model_client/utils 可直接导入
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
 
@@ -53,6 +66,11 @@ from utils.logging import setup_logging
 
 logger = setup_logging("rag_query", level="INFO")
 _DEFAULT_QUERY = "what is one of the stars of The Newcomers known for?"
+
+
+def _ms(start: float) -> int:
+    """返回从 start 到现在的毫秒数（整数）。"""
+    return int((time.monotonic() - start) * 1000)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -69,11 +87,23 @@ def _parse_args() -> argparse.Namespace:
 
 
 async def main(args: argparse.Namespace) -> None:
+    t_total = time.monotonic()
+
+    # ------------------------------------------------------------------
+    # 阶段 1：初始化
+    # ------------------------------------------------------------------
+    t0 = time.monotonic()
     config = PlanAConfig.from_env()
     pipeline = RAGPipeline(config)
     llm = LLMClient()
     await pipeline.initialize()
+    init_ms = _ms(t0)
+    print(f"⏱  初始化完成  took={init_ms}ms")
 
+    # ------------------------------------------------------------------
+    # 阶段 2：RAG 执行（Parlant Server + Agent + Guidelines + Tool）
+    # ------------------------------------------------------------------
+    t0 = time.monotonic()
     _, results = await run_parlant_server(
         pipeline,
         [args.query],
@@ -81,8 +111,19 @@ async def main(args: argparse.Namespace) -> None:
         top_k=args.top_k,
         include_metadata=args.include_metadata,
     )
+    rag_ms = _ms(t0)
+    print(f"⏱  RAG 执行完成  took={rag_ms}ms")
+
+    # ------------------------------------------------------------------
+    # 阶段 3：后处理（组装输出 + LLM 回答已含在 results 中）
+    # ------------------------------------------------------------------
+    t0 = time.monotonic()
     result = results[0] if results else {}
     resp = result.get("response", {})
+    postprocess_ms = _ms(t0)
+    total_ms = _ms(t_total)
+    print(f"⏱  后处理完成   took={postprocess_ms}ms  |  总耗时={total_ms}ms")
+
     output = {
         "query": args.query,
         "retrieval": {
@@ -92,6 +133,12 @@ async def main(args: argparse.Namespace) -> None:
             "chunks": resp.get("chunks", []),
         },
         "answer": result.get("answer", ""),
+        "timing": {
+            "init_ms": init_ms,
+            "rag_ms": rag_ms,
+            "postprocess_ms": postprocess_ms,
+            "total_ms": total_ms,
+        },
     }
 
     use_json = args.output_format == "json" or args.output_file is not None
