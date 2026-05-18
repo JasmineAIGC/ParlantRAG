@@ -4,7 +4,7 @@
 通过 ``--mode`` 选择 RAG 实现方式：
 
   standalone — RAGPipeline 直接检索 + LLMClient 生成回答（无需 Parlant）
-  parlant    — Parlant RAG Tool 检索 + LLMClient 生成回答（**后台执行，无需 Server / UI**）
+  parlant    — Parlant Server 模式：完整 Agent + Guidelines + RAG Tool（后台执行，无 UI）
   both       — 顺序运行两种模式（默认）
 
 所有计算/设置逻辑均在 plan_a/runner.py 中，本脚本只做初始化、调用和输出。
@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from plan_a import PlanAConfig, RAGMode, RAGPipeline
-from plan_a.runner import load_test_queries, run_standalone, run_parlant
+from plan_a.runner import load_test_queries, run_standalone, run_parlant_server
 from model_client.api.llm import LLMClient
 from utils.logging import setup_logging
 
@@ -76,18 +76,25 @@ async def main(args: argparse.Namespace) -> None:
         logger.info("[Entry] 运行 Standalone 模式  query_count=%d", len(queries))
         standalone_rows = await run_standalone(pipeline, queries, llm, top_k=args.top_k, include_metadata=args.include_metadata)
 
-    # --- Parlant 模式（无 Server，后台执行）---
+    # --- Parlant Server 模式（完整 Agent + Guidelines + RAG Tool，后台执行，无 UI）---
     parlant_rows: list[dict] = []
+    parlant_agent_info: dict = {}
     parlant_status = "skipped"
     if run_parlant_mode:
         try:
-            logger.info("[Entry] 运行 Parlant 模式（无 Server，后台执行）  query_count=%d", len(queries))
-            parlant_rows = await run_parlant(pipeline, queries, llm, top_k=args.top_k, include_metadata=args.include_metadata)
+            logger.info("[Entry] 运行 Parlant Server 模式  query_count=%d", len(queries))
+            parlant_agent_info, parlant_rows = await run_parlant_server(
+                pipeline, queries, llm=llm, top_k=args.top_k, include_metadata=args.include_metadata
+            )
             parlant_status = "ok"
-        except ModuleNotFoundError as exc:
-            if getattr(exc, "name", None) == "torch" or "No module named 'torch'" in str(exc):
+        except (ModuleNotFoundError, RuntimeError) as exc:
+            exc_str = str(exc)
+            if "torch" in exc_str or (isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None) == "torch"):
                 parlant_status = "missing_torch"
                 logger.warning("[Entry] Parlant 启动失败：缺少 torch 依赖（pip install torch）")
+            elif "parlant" in exc_str.lower():
+                parlant_status = "missing_parlant"
+                logger.warning("[Entry] parlant 包未安装，跳过（pip install parlant）")
             else:
                 raise
         except ImportError:
@@ -100,7 +107,7 @@ async def main(args: argparse.Namespace) -> None:
             "script": "05_plan_a_agent.py",
             "request": {"limit": args.limit, "seed": args.seed, "mode": args.mode},
             "standalone": standalone_rows,
-            "parlant": {"status": parlant_status, "results": parlant_rows},
+            "parlant": {"status": parlant_status, "agent": parlant_agent_info, "results": parlant_rows},
         }, ensure_ascii=False, indent=2))
     else:
         sep = "─" * 60
@@ -117,7 +124,9 @@ async def main(args: argparse.Namespace) -> None:
                 print(f"{sep}\n  Q: {q}\n  chunks={cnt}\n  A: {a}")
 
         if run_parlant_mode:
-            print(f"\n[PARLANT]  status={parlant_status}")
+            print(f"\n[PARLANT SERVER]  status={parlant_status}")
+            if parlant_agent_info:
+                print(f"  agent_id={parlant_agent_info.get('id')}")
             for row in parlant_rows:
                 q = row["request"].get("query", "")
                 cnt = row["response"].get("chunk_count", 0)
