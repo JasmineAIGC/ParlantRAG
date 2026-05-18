@@ -1,10 +1,11 @@
 """
-06_rag_query.py — Parlant 模式单条 RAG 查询示例（后台执行，无 UI）
+06_rag_query.py — Parlant Server 模式单条 RAG 查询示例（后台执行，无 UI）
 
-通过 Parlant RAG Tool（@p.tool）执行单条 query-answer，
-全程在后台运行，不启动任何 HTTP Server 或弹出 UI 界面。
+通过 Parlant Server 模式（完整 Agent + Guidelines + RAG Tool）执行单条 query-answer，
+全程在后台运行：Server 在本次调用中只初始化一次，不打开任何 UI 界面。
 
 所有检索/设置逻辑均在 plan_a/runner.py 中，本脚本只做初始化和输出。
+若需跨多次调用复用 Server，请使用 plan_a.runner.ParlantServerContext。
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from plan_a import PlanAConfig, RAGPipeline
-from plan_a.runner import run_parlant
+from plan_a.runner import run_parlant_server
 from model_client.api.llm import LLMClient
 from utils.logging import setup_logging
 
@@ -50,7 +51,7 @@ async def main(args: argparse.Namespace) -> None:
     llm = LLMClient()
     await pipeline.initialize()
 
-    results = await run_parlant(
+    _, results = await run_parlant_server(
         pipeline,
         [args.query],
         llm=llm,
