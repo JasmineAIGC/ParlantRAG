@@ -1,5 +1,5 @@
 """
-run_rag_query.py — 直接检索模式单条 RAG 查询入口
+run_rag_query.py — Parlant Server 模式单条 RAG 查询入口（后台执行，无 UI）
 
 本目录是自包含的（含 plan_a/、model_client/、utils/），
 从本目录直接运行即可，无需额外设置 PYTHONPATH：
@@ -11,14 +11,12 @@ run_rag_query.py — 直接检索模式单条 RAG 查询入口
 ------------------
 RAG 的核心职责是**检索**，LLM 生成回答属于后处理，两者严格分离：
 
-  1. 初始化  — PlanAConfig + RAGPipeline，加载 FAISS 索引
-  2. RAG 检索 — Embedding + FAISS 向量搜索，**仅检索，不调 LLM**
+  1. 初始化  — Parlant Server 启动 + LiteLLM 服务初始化 + 知识库 Embedding 缓存
+               （一次性，服务存续期内不会重复）
+  2. RAG 检索 — Agent RAG Tool 向量检索（不含 LLM 调用）
   3. 后处理  — 组装输出；加 ``--answer`` 时额外调 LLM 生成回答
 
 各阶段耗时均会打印到终端（格式：``⏱  <阶段>  took=XXXms``）。
-
-通过直接调用 ``RAGPipeline.retrieve_standard()`` 绕开 Parlant Server，
-RAG 检索阶段耗时从原来的数十秒（Server 启动 + LiteLLM 初始化）降至 <100ms。
 
 输出 JSON 结构
 --------------
@@ -29,7 +27,7 @@ RAG 检索阶段耗时从原来的数十秒（Server 启动 + LiteLLM 初始化�
       "retrieval": {
         "top_k":       <实际使用的检索片段上限>,
         "chunk_count": <命中的片段数>,
-        "took_ms":     <RAG 检索内部耗时（Embedding + FAISS，毫秒）>,
+        "took_ms":     <RAG Tool 内部向量检索耗时（毫秒）>,
         "chunks": [
           { "content": "<片段正文>", "source": "<来源>", "score": <相似度> },
           ...
@@ -39,7 +37,7 @@ RAG 检索阶段耗时从原来的数十秒（Server 启动 + LiteLLM 初始化�
       "timing": {
         "init_ms":        <初始化阶段耗时（毫秒）>,
         "rag_ms":         <RAG 检索阶段耗时（毫秒）>,
-        "postprocess_ms": <后处理阶段耗时（毫秒，含 LLM 调用）>,
+        "postprocess_ms": <后处理阶段耗时（毫秒）>,
         "total_ms":       <总耗时（毫秒）>
       }
     }
@@ -64,8 +62,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from plan_a import PlanAConfig, RAGPipeline
-from plan_a.core.types import RetrievalRequest
-from plan_a.runner import generate_answer
+from plan_a.runner import ParlantServerContext, generate_answer
 from utils.logging import setup_logging
 
 
@@ -80,7 +77,7 @@ def _ms(start: float) -> int:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="RAG 单条查询（直接检索，无 Parlant Server）",
+        description="Parlant 模式 RAG 单条查询（后台执行，无 UI）",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument("--query", type=str, default=_DEFAULT_QUERY, help="检索查询文本")
@@ -96,51 +93,77 @@ async def main(args: argparse.Namespace) -> None:
     t_total = time.monotonic()
 
     # ------------------------------------------------------------------
-    # 阶段 1：初始化（Config + FAISS 索引加载；按需创建 LLMClient）
+    # 阶段 1：初始化
+    #   含：PlanAConfig + RAGPipeline + Parlant Server 启动
+    #       + LiteLLM 服务初始化 + 知识库实体 Embedding 缓存
+    #   以上均为一次性操作，服务存续期内不会重复。
     # ------------------------------------------------------------------
     t0 = time.monotonic()
     config = PlanAConfig.from_env()
     pipeline = RAGPipeline(config)
+    await pipeline.initialize()
+
     llm = None
     if args.answer:
         from model_client.api.llm import LLMClient
         llm = LLMClient()
-    await pipeline.initialize()
-    init_ms = _ms(t0)
-    print(f"⏱  初始化完成  took={init_ms}ms")
 
-    # ------------------------------------------------------------------
-    # 阶段 2：RAG 检索（Embedding + FAISS 向量搜索，不调 LLM）
-    # ------------------------------------------------------------------
-    t0 = time.monotonic()
-    request = RetrievalRequest(
-        query=args.query,
+    ctx = ParlantServerContext(
+        pipeline,
         top_k=args.top_k,
         include_metadata=args.include_metadata,
     )
-    response = await pipeline.retrieve_standard(request)
-    rag_ms = _ms(t0)
-    print(f"⏱  RAG 检索完成  took={rag_ms}ms  chunks={len(response.chunks)}")
+    await ctx.__aenter__()
+    init_ms = _ms(t0)
+    print(f"⏱  初始化完成  took={init_ms}ms")
 
-    # ------------------------------------------------------------------
-    # 阶段 3：后处理（可选 LLM 生成回答 + 组装输出 dict）
-    # ------------------------------------------------------------------
-    t0 = time.monotonic()
-    answer = ""
-    if llm is not None:
-        answer = await generate_answer(llm, args.query, response.chunks)
-    retrieval_dict = response.to_dict(include_metadata=args.include_metadata)
-    postprocess_ms = _ms(t0)
-    total_ms = _ms(t_total)
-    print(f"⏱  后处理完成   took={postprocess_ms}ms  |  总耗时={total_ms}ms")
+    try:
+        # ------------------------------------------------------------------
+        # 阶段 2：RAG 检索（Agent RAG Tool 向量检索，不含 LLM 调用）
+        # ------------------------------------------------------------------
+        t0 = time.monotonic()
+        # 不传 llm，确保此阶段只做检索
+        results = await ctx.run_queries([args.query], llm=None)
+        rag_ms = _ms(t0)
+        result = results[0] if results else {}
+        resp = result.get("response", {})
+        print(f"⏱  RAG 检索完成  took={rag_ms}ms  chunks={resp.get('chunk_count', 0)}")
+
+        # ------------------------------------------------------------------
+        # 阶段 3：后处理（可选 LLM 生成回答 + 组装输出 dict）
+        # ------------------------------------------------------------------
+        t0 = time.monotonic()
+        answer = ""
+        if llm is not None:
+            formatted: str = resp.get("formatted") or ""
+            if formatted:
+                answer_prompt = (
+                    "请根据以下知识库内容简洁回答用户问题。若内容不足以回答，请如实说明。\n\n"
+                    f"用户问题：{args.query}\n\n"
+                    f"知识库内容：\n{formatted}\n\n回答："
+                )
+                try:
+                    answer = (await llm.chat_async([{"role": "user", "content": answer_prompt}])).strip()
+                except Exception as exc:
+                    logger.error("[run_rag_query] LLM 调用失败: %s", exc)
+                    answer = f"LLM 调用失败：{exc}"
+            else:
+                answer = "知识库中未找到与该问题相关的内容，无法回答。"
+
+        postprocess_ms = _ms(t0)
+        total_ms = _ms(t_total)
+        print(f"⏱  后处理完成   took={postprocess_ms}ms  |  总耗时={total_ms}ms")
+
+    finally:
+        await ctx.__aexit__(None, None, None)
 
     output = {
         "query": args.query,
         "retrieval": {
-            "top_k": retrieval_dict["top_k"],
-            "chunk_count": retrieval_dict["chunk_count"],
-            "took_ms": retrieval_dict["took_ms"],
-            "chunks": retrieval_dict["chunks"],
+            "top_k": resp.get("top_k"),
+            "chunk_count": resp.get("chunk_count", 0),
+            "took_ms": resp.get("took_ms"),
+            "chunks": resp.get("chunks", []),
         },
         "answer": answer,
         "timing": {
